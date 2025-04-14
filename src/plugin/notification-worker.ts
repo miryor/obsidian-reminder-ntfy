@@ -47,7 +47,6 @@ export class NotificationWorker {
       this.plugin.settings.reminderTime.value,
     );
 
-    let previousReminder: Reminder | undefined = undefined;
     for (const reminder of expired) {
       if (this.plugin.app.workspace.layoutReady) {
         if (reminder.muteNotification) {
@@ -55,10 +54,20 @@ export class NotificationWorker {
           // reminder won't be shown.
           continue;
         }
-
         // Send notification via ntfy if enabled
         if (this.plugin.settings.enableNtfy.value) {
           this.plugin.ntfyService.sendNotification(reminder);
+        }
+      }
+    }
+
+    let previousReminder: Reminder | undefined = undefined;
+    for (const reminder of expired) {
+      if (this.plugin.app.workspace.layoutReady) {
+        if (reminder.muteNotification) {
+          // We don't want to set `previousReminder` in this case as the current
+          // reminder won't be shown.
+          continue;
         }
 
         if (previousReminder) {

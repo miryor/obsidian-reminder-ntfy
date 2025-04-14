@@ -41,7 +41,7 @@ export class NtfyService {
       const response = await fetch(url, {
         method: "POST",
         headers: {
-          Title: reminder.title,
+          Title: "Obsidian Reminder",
           Priority: priority,
         },
         body: `${reminder.title} ${reminder.time}`,
