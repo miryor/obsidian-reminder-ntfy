@@ -40,6 +40,11 @@ export class Settings {
   linkDatesToDailyNotes: SettingModel<boolean, boolean>;
   editDetectionSec: SettingModel<number, number>;
   reminderCheckIntervalSec: SettingModel<number, number>;
+  enableNtfy: SettingModel<boolean, boolean>;
+  ntfyServer: SettingModel<string, string>;
+  ntfyTopic: SettingModel<string, string>;
+  ntfyToken: SettingModel<string, string>;
+  ntfyPriority: SettingModel<string, string>;
 
   constructor() {
     const reminderFormatSettings = new ReminderFormatSettings(this.settings);
@@ -214,6 +219,66 @@ export class Settings {
       .number(5)
       .build(new RawSerde());
 
+    this.enableNtfy = this.settings
+      .newSettingBuilder()
+      .key("enableNtfy")
+      .name("Enable ntfy notifications")
+      .desc("Send notifications via ntfy.sh service")
+      .toggle(false)
+      .build(new RawSerde());
+
+    this.ntfyServer = this.settings
+      .newSettingBuilder()
+      .key("ntfyServer")
+      .name("Ntfy server URL")
+      .desc("URL of the ntfy server (default: https://ntfy.sh)")
+      .text("https://ntfy.sh")
+      .placeHolder("https://ntfy.sh")
+      .onAnyValueChanged((context) => {
+        context.setEnabled(this.enableNtfy.value);
+      })
+      .build(new RawSerde());
+
+    this.ntfyTopic = this.settings
+      .newSettingBuilder()
+      .key("ntfyTopic")
+      .name("Ntfy topic")
+      .desc("Topic to use for sending notifications (required)")
+      .text("")
+      .placeHolder("your-topic-name")
+      .onAnyValueChanged((context) => {
+        context.setEnabled(this.enableNtfy.value);
+      })
+      .build(new RawSerde());
+
+    this.ntfyToken = this.settings
+      .newSettingBuilder()
+      .key("ntfyToken")
+      .name("Ntfy API token")
+      .desc("API token for ntfy authentication (optional)")
+      .text("")
+      .placeHolder("tk_abc123def456ghi789...")
+      .onAnyValueChanged((context) => {
+        context.setEnabled(this.enableNtfy.value);
+      })
+      .build(new RawSerde());
+
+    this.ntfyPriority = this.settings
+      .newSettingBuilder()
+      .key("ntfyPriority")
+      .name("Ntfy priority")
+      .desc("Priority for ntfy notifications")
+      .dropdown("default")
+      .addOption("Min", "min")
+      .addOption("Low", "low")
+      .addOption("Default", "default")
+      .addOption("High", "high")
+      .addOption("Max", "max")
+      .onAnyValueChanged((context) => {
+        context.setEnabled(this.enableNtfy.value);
+      })
+      .build(new RawSerde());
+
     this.settings
       .newGroup("Notification Settings")
       .addSettings(
@@ -247,6 +312,15 @@ export class Settings {
     this.settings
       .newGroup("Advanced")
       .addSettings(this.editDetectionSec, this.reminderCheckIntervalSec);
+    this.settings
+      .newGroup("Ntfy Notifications")
+      .addSettings(
+        this.enableNtfy,
+        this.ntfyServer,
+        this.ntfyTopic,
+        this.ntfyToken,
+        this.ntfyPriority,
+      );
 
     const config = new ReminderFormatConfig();
     config.setParameterFunc(ReminderFormatParameterKey.now, () =>

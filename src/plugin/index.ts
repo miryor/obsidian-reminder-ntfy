@@ -11,3 +11,4 @@ export { NotificationWorker } from "./notification-worker";
 export { ReminderPluginUI } from "./ui";
 export { ReminderPluginFileSystem } from "./filesystem";
 export { PluginData } from "./data";
+export { NtfyService } from "./ntfy";

@@ -1,5 +1,6 @@
 import {
   NotificationWorker,
+  NtfyService,
   PluginData,
   ReminderPluginFileSystem,
   ReminderPluginUI,
@@ -11,12 +12,14 @@ import type { PluginManifest } from "obsidian";
 
 export default class ReminderPlugin extends Plugin {
   _data: PluginData;
+  private _ntfyService: NtfyService;
   private _ui: ReminderPluginUI;
   private _reminders: Reminders;
   private _fileSystem: ReminderPluginFileSystem;
   private _notificationWorker: NotificationWorker;
   constructor(app: App, manifest: PluginManifest) {
     super(app, manifest);
+    this._ntfyService = new NtfyService(this);
     this._reminders = new Reminders(() => {
       // on changed
       if (this.ui) {
@@ -75,5 +78,9 @@ export default class ReminderPlugin extends Plugin {
 
   get settings() {
     return this.data.settings;
+  }
+
+  get ntfyService() {
+    return this._ntfyService;
   }
 }

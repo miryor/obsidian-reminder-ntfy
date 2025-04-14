@@ -55,6 +55,12 @@ export class NotificationWorker {
           // reminder won't be shown.
           continue;
         }
+
+        // Send notification via ntfy if enabled
+        if (this.plugin.settings.enableNtfy.value) {
+          this.plugin.ntfyService.sendNotification(reminder);
+        }
+
         if (previousReminder) {
           while (previousReminder.beingDisplayed) {
             // Displaying too many reminders at once can cause crashes on
