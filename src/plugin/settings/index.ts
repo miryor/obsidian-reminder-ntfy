@@ -40,6 +40,9 @@ export class Settings {
   linkDatesToDailyNotes: SettingModel<boolean, boolean>;
   editDetectionSec: SettingModel<number, number>;
   reminderCheckIntervalSec: SettingModel<number, number>;
+  enableGoogleTasks: SettingModel<boolean, boolean>;
+  googleTasksSyncFrequency: SettingModel<number, number>;
+  googleTasksOAuthPort: SettingModel<number, number>;
 
   constructor() {
     const reminderFormatSettings = new ReminderFormatSettings(this.settings);
@@ -214,6 +217,40 @@ export class Settings {
       .number(5)
       .build(new RawSerde());
 
+    this.enableGoogleTasks = this.settings
+      .newSettingBuilder()
+      .key("enableGoogleTasks")
+      .name("Enable Google Tasks integration")
+      .desc("Sync reminders with Google Tasks")
+      .toggle(false)
+      .build(new RawSerde());
+
+    this.googleTasksSyncFrequency = this.settings
+      .newSettingBuilder()
+      .key("googleTasksSyncFrequency")
+      .name("Google Tasks sync frequency (minutes)")
+      .desc(
+        "How often to sync reminders with Google Tasks (0 to sync only manually)",
+      )
+      .number(30)
+      .onAnyValueChanged((context) => {
+        context.setEnabled(this.enableGoogleTasks.value);
+      })
+      .build(new RawSerde());
+
+    this.googleTasksOAuthPort = this.settings
+      .newSettingBuilder()
+      .key("googleTasksOAuthPort")
+      .name("Google Tasks OAuth port")
+      .desc(
+        "Port number to use for the OAuth redirect server during authentication. Change this if port 8080 is already in use on your system.",
+      )
+      .number(8080)
+      .onAnyValueChanged((context) => {
+        context.setEnabled(this.enableGoogleTasks.value);
+      })
+      .build(new RawSerde());
+
     this.settings
       .newGroup("Notification Settings")
       .addSettings(
@@ -247,6 +284,13 @@ export class Settings {
     this.settings
       .newGroup("Advanced")
       .addSettings(this.editDetectionSec, this.reminderCheckIntervalSec);
+    this.settings
+      .newGroup("Google Tasks Integration")
+      .addSettings(
+        this.enableGoogleTasks,
+        this.googleTasksSyncFrequency,
+        this.googleTasksOAuthPort,
+      );
 
     const config = new ReminderFormatConfig();
     config.setParameterFunc(ReminderFormatParameterKey.now, () =>
