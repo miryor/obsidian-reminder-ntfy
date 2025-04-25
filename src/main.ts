@@ -176,4 +176,99 @@ export default class ReminderPlugin extends Plugin {
       5000,
     );
   }
+
+  /**
+   * Verify Google Tasks authentication by fetching task lists
+   */
+  public async verifyGoogleTasksAuth(): Promise<void> {
+    try {
+      if (!this._googleTasksService.isAuthenticated()) {
+        new Notice(
+          "Not authenticated with Google Tasks. Please authenticate first.",
+          3000,
+        );
+        return;
+      }
+
+      const taskLists = await this._googleTasksService.getTaskLists();
+      console.log(
+        "Google Tasks authentication verified. Available task lists:",
+        taskLists,
+      );
+      new Notice(
+        `Successfully fetched ${taskLists.length} task lists from Google Tasks.`,
+        3000,
+      );
+    } catch (error) {
+      console.error("Error verifying Google Tasks authentication:", error);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      new Notice(
+        `Failed to verify Google Tasks authentication: ${errorMessage}`,
+        5000,
+      );
+    }
+  }
+
+  /**
+   * Get Google Tasks task list by name, creating it if it doesn't exist
+   */
+  public async getGoogleTasksList(): Promise<void> {
+    try {
+      if (!this._googleTasksService.isAuthenticated()) {
+        new Notice(
+          "Not authenticated with Google Tasks. Please authenticate first.",
+          3000,
+        );
+        return;
+      }
+
+      const listName = this.settings.googleTasksListName.value;
+      let taskList = await this._googleTasksService.getTaskListByName(listName);
+
+      if (taskList) {
+        console.log(`Found task list "${listName}":`, taskList);
+      } else {
+        console.log(`Task list "${listName}" not found. Creating it...`);
+        try {
+          taskList = await this._googleTasksService.createTaskList(listName);
+          console.log(
+            `Successfully created task list "${listName}":`,
+            taskList,
+          );
+          new Notice(`Task list "${listName}" created in Google Tasks.`, 3000);
+        } catch (createError) {
+          console.error(
+            `Failed to create task list "${listName}":`,
+            createError,
+          );
+          const errorMessage =
+            createError instanceof Error
+              ? createError.message
+              : String(createError);
+          new Notice(`Failed to create task list: ${errorMessage}`, 5000);
+          return;
+        }
+      }
+
+      // Fetch detailed information about the task list
+      const detailedTaskList = await this._googleTasksService.getTaskList(
+        taskList.id,
+      );
+      console.log(
+        `Detailed information for task list "${listName}":`,
+        detailedTaskList,
+      );
+
+      new Notice(
+        `Successfully fetched task list "${listName}" from Google Tasks.`,
+        3000,
+      );
+    } catch (error) {
+      console.error("Error getting Google Tasks task list:", error);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      new Notice(`Failed to get Google Tasks task list: ${errorMessage}`, 5000);
+    }
+  }
 }

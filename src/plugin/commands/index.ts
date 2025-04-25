@@ -72,4 +72,22 @@ export function registerCommands(plugin: ReminderPlugin) {
       plugin.clearGoogleTasksAuth();
     },
   });
+
+  // Add command to verify Google Tasks authentication
+  plugin.addCommand({
+    id: "verify-google-tasks-auth",
+    name: "Verify Google Tasks authentication",
+    callback: () => {
+      plugin.verifyGoogleTasksAuth();
+    },
+  });
+
+  // Add command to get Google Tasks list
+  plugin.addCommand({
+    id: "get-google-tasks-list",
+    name: "Get Google Tasks list",
+    callback: () => {
+      plugin.getGoogleTasksList();
+    },
+  });
 }

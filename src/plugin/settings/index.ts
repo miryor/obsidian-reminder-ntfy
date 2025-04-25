@@ -43,6 +43,7 @@ export class Settings {
   enableGoogleTasks: SettingModel<boolean, boolean>;
   googleTasksSyncFrequency: SettingModel<number, number>;
   googleTasksOAuthPort: SettingModel<number, number>;
+  googleTasksListName: SettingModel<string, string>;
 
   constructor() {
     const reminderFormatSettings = new ReminderFormatSettings(this.settings);
@@ -251,6 +252,14 @@ export class Settings {
       })
       .build(new RawSerde());
 
+    this.googleTasksListName = this.settings
+      .newSettingBuilder()
+      .key("googleTasksListName")
+      .name("Google Tasks List Name")
+      .desc("Name of the Google Tasks list to sync with")
+      .text("obsidian")
+      .build(new RawSerde());
+
     this.settings
       .newGroup("Notification Settings")
       .addSettings(
@@ -290,6 +299,7 @@ export class Settings {
         this.enableGoogleTasks,
         this.googleTasksSyncFrequency,
         this.googleTasksOAuthPort,
+        this.googleTasksListName,
       );
 
     const config = new ReminderFormatConfig();

@@ -343,10 +343,8 @@ export class GoogleTasksService {
 
   /**
    * Get all task lists from Google Tasks
-   * Commented out for later implementation as a separate task
    */
-  private async getTaskLists(): Promise<{ id: string; title: string }[]> {
-    /*
+  public async getTaskLists(): Promise<{ id: string; title: string }[]> {
     if (!this.isAuthenticated()) {
       throw new Error("Not authenticated with Google Tasks");
     }
@@ -362,29 +360,64 @@ export class GoogleTasksService {
       );
 
       if (!response.ok) {
-        throw new Error("Failed to get task lists");
+        const errorText = await response.text();
+        console.error("Failed to get task lists:", errorText);
+        throw new Error(
+          `Failed to get task lists: ${response.status} ${response.statusText}`,
+        );
       }
 
       const data = await response.json();
-      return data.items.map((item: any) => ({
-        id: item.id,
-        title: item.title,
-      }));
+      console.log("Google Tasks lists retrieved:", data);
+
+      return (
+        data.items?.map((item: any) => ({
+          id: item.id,
+          title: item.title,
+        })) || []
+      );
     } catch (error) {
       console.error("Error getting task lists:", error);
       throw error;
     }
-    */
-    return Promise.resolve([]);
+  }
+
+  /**
+   * Get a specific task list by name
+   */
+  public async getTaskListByName(
+    name: string,
+  ): Promise<{ id: string; title: string } | null> {
+    try {
+      const taskLists = await this.getTaskLists();
+      const taskList = taskLists.find((list) => list.title === name);
+      return taskList || null;
+    } catch (error) {
+      console.error(`Error getting task list '${name}':`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Verify authentication by fetching task lists
+   */
+  public async verifyAuthentication(): Promise<boolean> {
+    try {
+      const taskLists = await this.getTaskLists();
+      console.log("Authentication verified. Task lists:", taskLists);
+      return true;
+    } catch (error) {
+      console.error("Authentication verification failed:", error);
+      return false;
+    }
   }
 
   /**
    * Create a new task list
-   * Commented out for later implementation as a separate task
    */
-  private async createTaskList() /*title: string,*/
-  : Promise<{ id: string; title: string }> {
-    /*
+  public async createTaskList(
+    title: string,
+  ): Promise<{ id: string; title: string }> {
     if (!this.isAuthenticated()) {
       throw new Error("Not authenticated with Google Tasks");
     }
@@ -403,20 +436,23 @@ export class GoogleTasksService {
       );
 
       if (!response.ok) {
-        throw new Error("Failed to create task list");
+        const errorText = await response.text();
+        console.error(`Failed to create task list "${title}":`, errorText);
+        throw new Error(
+          `Failed to create task list: ${response.status} ${response.statusText}`,
+        );
       }
 
       const data = await response.json();
+      console.log(`Created Google Tasks list "${title}":`, data);
       return {
         id: data.id,
         title: data.title,
       };
     } catch (error) {
-      console.error("Error creating task list:", error);
+      console.error(`Error creating task list "${title}":`, error);
       throw error;
     }
-    */
-    return Promise.resolve({ id: "", title: "" });
   }
 
   /**
@@ -544,6 +580,44 @@ export class GoogleTasksService {
     localStorage.removeItem("google_tasks_code_verifier");
     localStorage.removeItem("google_tasks_redirect_uri");
     console.log("Google Tasks authentication data cleared");
+  }
+
+  /**
+   * Get a specific task list by ID
+   */
+  public async getTaskList(taskListId: string): Promise<any> {
+    if (!this.isAuthenticated()) {
+      throw new Error("Not authenticated with Google Tasks");
+    }
+
+    try {
+      const response = await fetch(
+        `https://tasks.googleapis.com/tasks/v1/users/@me/lists/${taskListId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${this.tokenData?.access_token}`,
+          },
+        },
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(
+          `Failed to get task list with ID ${taskListId}:`,
+          errorText,
+        );
+        throw new Error(
+          `Failed to get task list: ${response.status} ${response.statusText}`,
+        );
+      }
+
+      const data = await response.json();
+      console.log(`Google Tasks list with ID ${taskListId} retrieved:`, data);
+      return data;
+    } catch (error) {
+      console.error(`Error getting task list with ID ${taskListId}:`, error);
+      throw error;
+    }
   }
 }
 
