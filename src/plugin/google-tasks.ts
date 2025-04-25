@@ -534,6 +534,17 @@ export class GoogleTasksService {
       .replace(/\//g, "_")
       .replace(/=/g, "");
   }
+
+  /**
+   * Clear token data to force reauthentication
+   */
+  public clearTokenData(): void {
+    this.tokenData = null;
+    localStorage.removeItem("google_tasks_token_data");
+    localStorage.removeItem("google_tasks_code_verifier");
+    localStorage.removeItem("google_tasks_redirect_uri");
+    console.log("Google Tasks authentication data cleared");
+  }
 }
 
 /**

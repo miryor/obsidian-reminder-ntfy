@@ -63,4 +63,13 @@ export function registerCommands(plugin: ReminderPlugin) {
       }
     },
   });
+
+  // Add command to clear Google Tasks authentication
+  plugin.addCommand({
+    id: "clear-google-tasks-auth",
+    name: "Clear Google Tasks authentication",
+    callback: () => {
+      plugin.clearGoogleTasksAuth();
+    },
+  });
 }

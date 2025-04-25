@@ -165,4 +165,15 @@ export default class ReminderPlugin extends Plugin {
       new GoogleTasksAuthFailedModal(this, errorMessage).open();
     }
   }
+
+  /**
+   * Clear Google Tasks authentication data
+   */
+  public clearGoogleTasksAuth(): void {
+    this._googleTasksService.clearTokenData();
+    new Notice(
+      "Google Tasks authentication has been cleared. You will need to re-authenticate.",
+      5000,
+    );
+  }
 }
