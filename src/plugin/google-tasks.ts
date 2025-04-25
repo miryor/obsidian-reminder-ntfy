@@ -235,14 +235,6 @@ export class GoogleTasksService {
 
       console.log("Refreshing access token...");
 
-      // Get stored code verifier if available or generate a new one
-      let codeVerifier = localStorage.getItem("google_tasks_code_verifier");
-      if (!codeVerifier) {
-        // Create a new code verifier if none exists
-        codeVerifier = this.generateCodeVerifier();
-        localStorage.setItem("google_tasks_code_verifier", codeVerifier);
-      }
-
       const response = await fetch(tokenEndpoint, {
         method: "POST",
         headers: {
@@ -252,7 +244,6 @@ export class GoogleTasksService {
           client_id: this.clientId,
           refresh_token: this.tokenData.refresh_token,
           grant_type: "refresh_token",
-          code_verifier: codeVerifier,
         }),
       });
 
@@ -580,6 +571,18 @@ export class GoogleTasksService {
     localStorage.removeItem("google_tasks_code_verifier");
     localStorage.removeItem("google_tasks_redirect_uri");
     console.log("Google Tasks authentication data cleared");
+  }
+
+  /**
+   * Manually refresh the access token
+   * Public wrapper around the private refreshToken method
+   */
+  public async refreshAccessToken(): Promise<void> {
+    if (!this.tokenData?.refresh_token) {
+      throw new Error("No refresh token available. Please authenticate first.");
+    }
+
+    await this.refreshToken();
   }
 
   /**

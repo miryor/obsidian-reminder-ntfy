@@ -97,7 +97,7 @@ async function generateCodeChallenge(codeVerifier: string): Promise<string> {
      - `client_id`: Your app's client ID
      - `redirect_uri`: The callback URL in your app
      - `response_type`: Always "code" for authorization code flow
-     - `scope`: Requested API permissions (e.g., "https://www.googleapis.com/auth/tasks")
+     - `scope`: Requested API permissions (e.g., "<https://www.googleapis.com/auth/tasks>")
      - `code_challenge`: The generated code challenge
      - `code_challenge_method`: "S256" (indicating SHA-256)
      - `access_type`: "offline" (to receive a refresh token)
@@ -189,11 +189,11 @@ async function initiateOAuthFlow() {
   localStorage.setItem("codeVerifier", codeVerifier);
 
   // Build authorization URL
-  const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+  const authUrl = new URL(`https://accounts.google.com/o/oauth2/v2/auth`);
   authUrl.searchParams.append("client_id", CLIENT_ID);
   authUrl.searchParams.append("redirect_uri", REDIRECT_URI);
   authUrl.searchParams.append("response_type", "code");
-  authUrl.searchParams.append("scope", "https://www.googleapis.com/auth/tasks");
+  authUrl.searchParams.append("scope", `https://www.googleapis.com/auth/tasks`);
   authUrl.searchParams.append("code_challenge", codeChallenge);
   authUrl.searchParams.append("code_challenge_method", "S256");
   authUrl.searchParams.append("access_type", "offline");
@@ -215,7 +215,7 @@ async function exchangeCodeForTokens(authCode: string) {
     throw new Error("Code verifier not found");
   }
 
-  const tokenRequest = await fetch("https://oauth2.googleapis.com/token", {
+  const tokenRequest = await fetch(`https://oauth2.googleapis.com/token`, {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
@@ -256,7 +256,7 @@ async function refreshAccessToken(refreshToken: string) {
   try {
     console.log("Attempting to refresh access token...");
 
-    const response = await fetch("https://oauth2.googleapis.com/token", {
+    const response = await fetch(`https://oauth2.googleapis.com/token`, {
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
@@ -334,7 +334,7 @@ async function refreshAccessToken(refreshToken: string) {
 
 2. **Test OAuth Endpoints**:
 
-   - Validate with Google's OAuth Playground (https://developers.google.com/oauthplayground/)
+   - Validate with Google's OAuth Playground (<https://developers.google.com/oauthplayground/>)
    - Test each step of the authentication flow independently
 
 3. **Refresh Token Testing**:

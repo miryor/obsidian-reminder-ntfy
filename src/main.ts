@@ -271,4 +271,29 @@ export default class ReminderPlugin extends Plugin {
       new Notice(`Failed to get Google Tasks task list: ${errorMessage}`, 5000);
     }
   }
+
+  /**
+   * Manually refresh the Google Tasks access token
+   * This is useful if the token has expired but the automatic refresh hasn't triggered
+   */
+  public async refreshGoogleTasksToken(): Promise<void> {
+    try {
+      if (!this._googleTasksService.isAuthenticated()) {
+        new Notice(
+          "Not authenticated with Google Tasks. Please authenticate first.",
+          3000,
+        );
+        return;
+      }
+
+      // Call the internal refresh method
+      await this._googleTasksService.refreshAccessToken();
+      new Notice("Google Tasks token has been refreshed successfully.", 3000);
+    } catch (error) {
+      console.error("Error refreshing Google Tasks token:", error);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      new Notice(`Failed to refresh Google Tasks token: ${errorMessage}`, 5000);
+    }
+  }
 }

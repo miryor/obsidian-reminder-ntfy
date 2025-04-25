@@ -19,7 +19,7 @@ This document compares the traditional OAuth 2.0 flow with the PKCE-enhanced OAu
 
 ### Traditional OAuth Flow
 
-```
+```txt
 +--------+                               +---------------+
 |        |--(A)- Authorization Request ->|   Resource    |
 |        |                               |     Owner     |
@@ -41,7 +41,7 @@ This document compares the traditional OAuth 2.0 flow with the PKCE-enhanced OAu
 
 ### OAuth with PKCE
 
-```
+```txt
 +--------+                                           +---------------+
 |        |--(A)- Authorization Request + code_challenge ->|   Resource    |
 |        |                                           |     Owner     |
