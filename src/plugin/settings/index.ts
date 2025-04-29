@@ -41,7 +41,6 @@ export class Settings {
   editDetectionSec: SettingModel<number, number>;
   reminderCheckIntervalSec: SettingModel<number, number>;
   enableGoogleTasks: SettingModel<boolean, boolean>;
-  googleTasksSyncFrequency: SettingModel<number, number>;
   googleTasksOAuthPort: SettingModel<number, number>;
   googleTasksListName: SettingModel<string, string>;
 
@@ -226,19 +225,6 @@ export class Settings {
       .toggle(false)
       .build(new RawSerde());
 
-    this.googleTasksSyncFrequency = this.settings
-      .newSettingBuilder()
-      .key("googleTasksSyncFrequency")
-      .name("Google Tasks sync frequency (minutes)")
-      .desc(
-        "How often to sync reminders with Google Tasks (0 to sync only manually)",
-      )
-      .number(30)
-      .onAnyValueChanged((context) => {
-        context.setEnabled(this.enableGoogleTasks.value);
-      })
-      .build(new RawSerde());
-
     this.googleTasksOAuthPort = this.settings
       .newSettingBuilder()
       .key("googleTasksOAuthPort")
@@ -297,7 +283,6 @@ export class Settings {
       .newGroup("Google Tasks Integration")
       .addSettings(
         this.enableGoogleTasks,
-        this.googleTasksSyncFrequency,
         this.googleTasksOAuthPort,
         this.googleTasksListName,
       );

@@ -1,5 +1,4 @@
 import type { Reminder } from "model/reminder";
-import type { DateTime } from "model/time";
 import type { TaskInput } from "./google-tasks"; // Assuming TaskInput is exported from google-tasks.ts
 
 /**
@@ -37,9 +36,8 @@ export function convertObsidianToGoogleTask(reminder: Reminder): TaskInput {
     // If the reminder has only a date (no time component), we should format accordingly
     // Assuming reminder.time.moment() is available and valid
     try {
-      // Check if the time component is significant (not midnight or default)
-      // This might need adjustment based on how DateTime stores date-only reminders
-      const hasTime = reminder.time.hasTime();
+      // Use the hasTimePart property to check if time is included
+      const hasTime = reminder.time.hasTimePart;
       if (hasTime) {
         taskInput.due = reminder.time.moment().toISOString(); // Full timestamp
       } else {
@@ -59,9 +57,9 @@ export function convertObsidianToGoogleTask(reminder: Reminder): TaskInput {
   }
 
   // Set notes with a link back to the Obsidian note
-  if (reminder.filePath) {
+  if (reminder.file) {
     // Constructing a basic obsidian URI. This might need refinement based on vault name/paths.
-    const obsidianLink = `Obsidian Reminder: obsidian://open?path=${encodeURIComponent(reminder.filePath)}&line=${reminder.rowNumber}`;
+    const obsidianLink = `Obsidian Reminder: obsidian://open?path=${encodeURIComponent(reminder.file)}&line=${reminder.rowNumber}`;
     taskInput.notes = obsidianLink;
   }
 
