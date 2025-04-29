@@ -296,4 +296,84 @@ export default class ReminderPlugin extends Plugin {
       new Notice(`Failed to refresh Google Tasks token: ${errorMessage}`, 5000);
     }
   }
+
+  /**
+   * Get and print tasks from the configured Google Tasks list
+   * Retrieves all tasks from the list specified in settings and prints them to the console
+   */
+  public async getGoogleTasks(): Promise<void> {
+    try {
+      if (!this._googleTasksService.isAuthenticated()) {
+        new Notice(
+          "Not authenticated with Google Tasks. Please authenticate first.",
+          3000,
+        );
+        return;
+      }
+
+      const listName = this.settings.googleTasksListName.value;
+      let taskList = await this._googleTasksService.getTaskListByName(listName);
+
+      if (!taskList) {
+        console.log(`Task list "${listName}" not found. Creating it...`);
+        try {
+          taskList = await this._googleTasksService.createTaskList(listName);
+          console.log(
+            `Successfully created task list "${listName}":`,
+            taskList,
+          );
+        } catch (createError) {
+          console.error(
+            `Failed to create task list "${listName}":`,
+            createError,
+          );
+          const errorMessage =
+            createError instanceof Error
+              ? createError.message
+              : String(createError);
+          new Notice(`Failed to create task list: ${errorMessage}`, 5000);
+          return;
+        }
+      }
+
+      // Get tasks from the list
+      const tasks = await this._googleTasksService.getTasks(taskList.id);
+
+      // Log tasks to console
+      console.log(
+        `Tasks in list "${listName}" (${tasks.length} tasks):`,
+        tasks,
+      );
+
+      // Format and log each task in a more readable way
+      if (tasks.length > 0) {
+        console.log(`===== Tasks in "${listName}" =====`);
+        tasks.forEach((task, index) => {
+          console.log(
+            `${index + 1}. ${task.title} (${task.status || "no status"})`,
+          );
+          if (task.notes) console.log(`   Notes: ${task.notes}`);
+          if (task.due)
+            console.log(`   Due: ${new Date(task.due).toLocaleString()}`);
+          if (task.completed)
+            console.log(
+              `   Completed: ${new Date(task.completed).toLocaleString()}`,
+            );
+          console.log("   ---");
+        });
+      } else {
+        console.log(`No tasks found in list "${listName}"`);
+      }
+
+      new Notice(
+        `Retrieved ${tasks.length} tasks from Google Tasks list "${listName}". Check developer console for details.`,
+        3000,
+      );
+    } catch (error) {
+      console.error("Error getting Google Tasks:", error);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      new Notice(`Failed to get Google Tasks: ${errorMessage}`, 5000);
+    }
+  }
 }

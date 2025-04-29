@@ -6,6 +6,7 @@ import { convertReminderTimeFormat } from "./convert-reminder-time-format";
 import { showDateChooser } from "./show-date-chooser";
 import { toggleChecklistStatus } from "./toggle-checklist-status";
 import { refreshGoogleTasksToken } from "./refresh-google-tasks-token";
+import { getGoogleTasks } from "./get-google-tasks";
 
 export function registerCommands(plugin: ReminderPlugin) {
   plugin.addCommand({
@@ -89,6 +90,15 @@ export function registerCommands(plugin: ReminderPlugin) {
     name: "Get Google Tasks list",
     callback: () => {
       plugin.getGoogleTasksList();
+    },
+  });
+
+  // Add command to get tasks from Google Tasks list
+  plugin.addCommand({
+    id: "get-google-tasks",
+    name: "Get tasks from Google Tasks list",
+    checkCallback: (checking: boolean) => {
+      return getGoogleTasks(checking, plugin);
     },
   });
 

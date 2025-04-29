@@ -227,6 +227,7 @@ export class GoogleTasksService {
    */
   private async refreshToken(): Promise<void> {
     if (!this.tokenData?.refresh_token) {
+      console.error("No refresh token available");
       throw new Error("No refresh token available");
     }
 
@@ -259,6 +260,12 @@ export class GoogleTasksService {
           );
           console.error("Error details:", errorData);
           errorMessage = `Token refresh failed: ${errorData.error || "unknown error"}`;
+
+          // Handle specific error types more gracefully
+          if (errorData.error === "invalid_grant") {
+            console.error("The refresh token is invalid or has been revoked.");
+            this.clearTokenData(); // Clear invalid tokens to force re-authentication
+          }
         } catch (parseError) {
           // Handle case where response isn't valid JSON
           const responseText = await response.clone().text();
@@ -622,6 +629,285 @@ export class GoogleTasksService {
       throw error;
     }
   }
+
+  /**
+   * Get all tasks from a task list
+   */
+  public async getTasks(taskListId: string): Promise<Task[]> {
+    if (!this.isAuthenticated()) {
+      throw new Error("Not authenticated with Google Tasks");
+    }
+
+    try {
+      const response = await this.executeWithRetry(() =>
+        fetch(
+          `https://tasks.googleapis.com/tasks/v1/lists/${taskListId}/tasks`,
+          {
+            headers: {
+              Authorization: `Bearer ${this.tokenData?.access_token}`,
+            },
+          },
+        ),
+      );
+
+      const data = await response.json();
+      console.log(`Tasks retrieved from list ${taskListId}:`, data);
+
+      return data.items || [];
+    } catch (error) {
+      console.error(`Error getting tasks from list ${taskListId}:`, error);
+      throw this.enhanceError(error, "Failed to retrieve tasks");
+    }
+  }
+
+  /**
+   * Get a specific task by ID
+   */
+  public async getTask(taskListId: string, taskId: string): Promise<Task> {
+    if (!this.isAuthenticated()) {
+      throw new Error("Not authenticated with Google Tasks");
+    }
+
+    try {
+      const response = await this.executeWithRetry(() =>
+        fetch(
+          `https://tasks.googleapis.com/tasks/v1/lists/${taskListId}/tasks/${taskId}`,
+          {
+            headers: {
+              Authorization: `Bearer ${this.tokenData?.access_token}`,
+            },
+          },
+        ),
+      );
+
+      const data = await response.json();
+      console.log(`Task ${taskId} retrieved from list ${taskListId}:`, data);
+
+      return data;
+    } catch (error) {
+      console.error(
+        `Error getting task ${taskId} from list ${taskListId}:`,
+        error,
+      );
+      throw this.enhanceError(error, "Failed to retrieve task");
+    }
+  }
+
+  /**
+   * Create a new task in a task list
+   */
+  public async createTask(taskListId: string, task: TaskInput): Promise<Task> {
+    if (!this.isAuthenticated()) {
+      throw new Error("Not authenticated with Google Tasks");
+    }
+
+    try {
+      const response = await this.executeWithRetry(() =>
+        fetch(
+          `https://tasks.googleapis.com/tasks/v1/lists/${taskListId}/tasks`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${this.tokenData?.access_token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(task),
+          },
+        ),
+      );
+
+      const data = await response.json();
+      console.log(`Task created in list ${taskListId}:`, data);
+
+      return data;
+    } catch (error) {
+      console.error(`Error creating task in list ${taskListId}:`, error);
+      throw this.enhanceError(error, "Failed to create task");
+    }
+  }
+
+  /**
+   * Update an existing task
+   */
+  public async updateTask(
+    taskListId: string,
+    taskId: string,
+    updates: TaskInput,
+  ): Promise<Task> {
+    if (!this.isAuthenticated()) {
+      throw new Error("Not authenticated with Google Tasks");
+    }
+
+    try {
+      const response = await this.executeWithRetry(() =>
+        fetch(
+          `https://tasks.googleapis.com/tasks/v1/lists/${taskListId}/tasks/${taskId}`,
+          {
+            method: "PATCH",
+            headers: {
+              Authorization: `Bearer ${this.tokenData?.access_token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(updates),
+          },
+        ),
+      );
+
+      const data = await response.json();
+      console.log(`Task ${taskId} updated in list ${taskListId}:`, data);
+
+      return data;
+    } catch (error) {
+      console.error(
+        `Error updating task ${taskId} in list ${taskListId}:`,
+        error,
+      );
+      throw this.enhanceError(error, "Failed to update task");
+    }
+  }
+
+  /**
+   * Delete a task
+   */
+  public async deleteTask(taskListId: string, taskId: string): Promise<void> {
+    if (!this.isAuthenticated()) {
+      throw new Error("Not authenticated with Google Tasks");
+    }
+
+    try {
+      await this.executeWithRetry(() =>
+        fetch(
+          `https://tasks.googleapis.com/tasks/v1/lists/${taskListId}/tasks/${taskId}`,
+          {
+            method: "DELETE",
+            headers: {
+              Authorization: `Bearer ${this.tokenData?.access_token}`,
+            },
+          },
+        ),
+      );
+
+      console.log(`Task ${taskId} deleted from list ${taskListId}`);
+    } catch (error) {
+      console.error(
+        `Error deleting task ${taskId} from list ${taskListId}:`,
+        error,
+      );
+      throw this.enhanceError(error, "Failed to delete task");
+    }
+  }
+
+  /**
+   * Complete a task (convenience method)
+   */
+  public async completeTask(taskListId: string, taskId: string): Promise<Task> {
+    return this.updateTask(taskListId, taskId, {
+      title: "", // Google Tasks API requires title to be included, even if we're not changing it
+      status: "completed",
+      completed: new Date().toISOString(),
+    });
+  }
+
+  /**
+   * Execute an API request with automatic retry and token refresh logic
+   * @param requestFn Function that returns a fetch promise
+   * @param maxRetries Maximum number of retry attempts
+   * @returns Response from the API
+   */
+  private async executeWithRetry(
+    requestFn: () => Promise<Response>,
+    maxRetries: number = 3,
+  ): Promise<Response> {
+    let lastError: any = null;
+    let retryDelay = 1000; // Start with 1 second delay, will increase exponentially
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const response = await requestFn();
+
+        // Handle rate limiting (HTTP 429) with exponential backoff
+        if (response.status === 429) {
+          // Get retry-after header or default to exponential delay
+          const retryAfter = response.headers.get("Retry-After");
+          const waitTime = retryAfter
+            ? parseInt(retryAfter, 10) * 1000
+            : retryDelay;
+
+          console.warn(
+            `Rate limit exceeded. Retrying after ${waitTime}ms (attempt ${attempt + 1}/${maxRetries})`,
+          );
+
+          // Wait before retrying
+          await new Promise((resolve) => setTimeout(resolve, waitTime));
+
+          // Increase retry delay for next potential retry (exponential backoff)
+          retryDelay *= 2;
+          continue;
+        }
+
+        // Handle token expiration
+        if (response.status === 401) {
+          console.log("Token may be expired, attempting refresh...");
+          try {
+            await this.refreshToken();
+            // Continue with next retry attempt after token refresh
+            continue;
+          } catch (refreshError) {
+            console.error("Error refreshing token during retry:", refreshError);
+            throw refreshError;
+          }
+        }
+
+        // For other non-success responses, parse error and throw
+        if (!response.ok) {
+          const errorText = await response.text();
+          try {
+            const errorJson = JSON.parse(errorText);
+            throw new Error(
+              `API error: ${response.status} ${response.statusText} - ${errorJson.error?.message || JSON.stringify(errorJson)}`,
+            );
+          } catch {
+            throw new Error(
+              `API error: ${response.status} ${response.statusText} - ${errorText}`,
+            );
+          }
+        }
+
+        return response;
+      } catch (error) {
+        lastError = error;
+
+        // If this is not the last attempt, wait before retrying
+        if (attempt < maxRetries) {
+          console.warn(
+            `Request failed, retrying in ${retryDelay}ms (attempt ${attempt + 1}/${maxRetries})`,
+            error,
+          );
+          await new Promise((resolve) => setTimeout(resolve, retryDelay));
+          retryDelay *= 2; // Exponential backoff
+        }
+      }
+    }
+
+    // If we've exhausted all retries, throw the last error
+    throw lastError;
+  }
+
+  /**
+   * Enhance error information for better debugging
+   */
+  private enhanceError(error: any, context: string): Error {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
+    const enhancedError = new Error(`${context}: ${errorMessage}`);
+
+    // Preserve stack trace if available
+    if (error instanceof Error && error.stack) {
+      enhancedError.stack = error.stack;
+    }
+
+    return enhancedError;
+  }
 }
 
 /**
@@ -820,4 +1106,35 @@ interface TokenData {
   access_token: string;
   refresh_token: string;
   expires_at: number;
+}
+
+/**
+ * Task input interface for creating/updating tasks
+ */
+interface TaskInput {
+  title: string;
+  notes?: string;
+  due?: string;
+  completed?: string;
+  status?: "needsAction" | "completed";
+}
+
+/**
+ * Task interface from Google Tasks API
+ */
+interface Task {
+  id: string;
+  title: string;
+  notes?: string;
+  due?: string;
+  completed?: string;
+  status?: "needsAction" | "completed";
+  position?: string;
+  etag?: string;
+  updated?: string;
+  links?: Array<{
+    type: string;
+    description: string;
+    link: string;
+  }>;
 }
