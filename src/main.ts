@@ -439,7 +439,7 @@ export default class ReminderPlugin extends Plugin {
       const targetListId = taskList.id;
 
       // Correctly access the reminders array
-      const obsidianReminders = this._reminders.reminders;
+      const obsidianReminders = this._reminders.reminders; // Use the public 'reminders' property
       console.log(
         `Found ${obsidianReminders.length} Obsidian reminders to process.`,
       );
@@ -476,7 +476,6 @@ export default class ReminderPlugin extends Plugin {
           }
           const reminderLine = lines[reminder.rowNumber];
 
-          // Add check for undefined reminderLine before processing
           if (reminderLine === undefined) {
             console.warn(
               `Skipping reminder: Could not read line ${reminder.rowNumber} from file ${reminder.file}`,
@@ -523,7 +522,7 @@ export default class ReminderPlugin extends Plugin {
             const updatedLine = this.updateMarkdownLineWithMetadata(
               reminderLine,
               updatedMetadata,
-            ); // reminderLine is now guaranteed to be a string
+            );
             if (updatedLine !== reminderLine) {
               lines[reminder.rowNumber] = updatedLine;
               await this.app.vault.modify(file, lines.join("\n"));
@@ -566,15 +565,11 @@ export default class ReminderPlugin extends Plugin {
     originalLine: string,
     metadata: GoogleTaskMetadata,
   ): string {
-    // Remove existing gtask comment if present
     const lineWithoutComment = originalLine
       .replace(/<!--\s*gtask:.*?\s*-->/g, "")
       .trimEnd();
-
-    // Construct the new comment
     const metadataString = JSON.stringify(metadata);
     const newComment = ` <!-- gtask:${metadataString} -->`;
-
     return lineWithoutComment + newComment;
   }
 }
