@@ -96,9 +96,22 @@ export function registerCommands(plugin: ReminderPlugin) {
   // Add command to get tasks from Google Tasks list
   plugin.addCommand({
     id: "get-google-tasks",
-    name: "Get tasks from Google Tasks list",
+    name: "Get tasks from Google Tasks list (Log to console)",
     checkCallback: (checking: boolean) => {
       return getGoogleTasks(checking, plugin);
+    },
+  });
+
+  // Add command to manually trigger Google Tasks sync
+  plugin.addCommand({
+    id: "sync-google-tasks",
+    name: "Sync reminders with Google Tasks",
+    checkCallback: (checking: boolean) => {
+      if (checking) {
+        return plugin.settings.enableGoogleTasks.value;
+      }
+      plugin.syncGoogleTasks(); // Call the new sync method
+      return true;
     },
   });
 

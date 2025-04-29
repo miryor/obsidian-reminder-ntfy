@@ -6,9 +6,16 @@ import {
 } from "plugin";
 import { Reminders } from "model/reminder";
 import { DATE_TIME_FORMATTER } from "model/time";
-import { App, Modal, Notice, Plugin, Setting } from "obsidian";
+import { App, Modal, Notice, Plugin, Setting, TFile } from "obsidian";
 import type { PluginManifest } from "obsidian";
 import { GoogleTasksService } from "plugin/google-tasks";
+import type { Task } from "plugin/google-tasks";
+import {
+  convertObsidianToGoogleTask,
+  extractGoogleTaskMetadata,
+  generateReminderChecksum,
+} from "plugin/google-tasks-converter";
+import type { GoogleTaskMetadata } from "plugin/google-tasks-converter";
 
 /**
  * Modal for handling Google Tasks authentication failures
@@ -160,8 +167,6 @@ export default class ReminderPlugin extends Plugin {
       console.error("Error authenticating with Google Tasks:", error);
       const errorMessage =
         error instanceof Error ? error.message : String(error);
-
-      // Open a modal with options to retry or disable Google Tasks
       new GoogleTasksAuthFailedModal(this, errorMessage).open();
     }
   }
@@ -375,5 +380,201 @@ export default class ReminderPlugin extends Plugin {
         error instanceof Error ? error.message : String(error);
       new Notice(`Failed to get Google Tasks: ${errorMessage}`, 5000);
     }
+  }
+
+  /**
+   * Core logic to synchronize Obsidian reminders with Google Tasks.
+   * Iterates through reminders, compares checksums, and creates/updates tasks as needed.
+   */
+  public async syncGoogleTasks(): Promise<void> {
+    if (!this.settings.enableGoogleTasks.value) {
+      new Notice("Google Tasks integration is disabled in settings.", 3000);
+      return;
+    }
+
+    if (!this._googleTasksService.isAuthenticated()) {
+      new Notice(
+        "Not authenticated with Google Tasks. Please authenticate first.",
+        3000,
+      );
+      return;
+    }
+
+    console.log("Starting Google Tasks synchronization...");
+    new Notice("Starting Google Tasks sync...");
+
+    let createdCount = 0;
+    let updatedCount = 0;
+    let skippedCount = 0;
+    let errorCount = 0;
+
+    try {
+      const listName = this.settings.googleTasksListName.value;
+      let taskList = await this._googleTasksService.getTaskListByName(listName);
+
+      if (!taskList) {
+        console.log(`Task list "${listName}" not found. Creating it...`);
+        try {
+          taskList = await this._googleTasksService.createTaskList(listName);
+          console.log(
+            `Successfully created task list "${listName}":`,
+            taskList,
+          );
+        } catch (createError) {
+          console.error(
+            `Failed to find or create task list "${listName}":`,
+            createError,
+          );
+          const errorMessage =
+            createError instanceof Error
+              ? createError.message
+              : String(createError);
+          new Notice(
+            `Failed to find/create Google Tasks list: ${errorMessage}`,
+            5000,
+          );
+          return;
+        }
+      }
+      const targetListId = taskList.id;
+
+      // Correctly access the reminders array
+      const obsidianReminders = this._reminders.reminders;
+      console.log(
+        `Found ${obsidianReminders.length} Obsidian reminders to process.`,
+      );
+
+      for (const reminder of obsidianReminders) {
+        try {
+          if (!reminder.file) {
+            console.warn(
+              "Skipping reminder with no file path:",
+              reminder.title,
+            );
+            skippedCount++;
+            continue;
+          }
+
+          const file = this.app.vault.getAbstractFileByPath(reminder.file);
+          if (!(file instanceof TFile)) {
+            console.warn(
+              "Skipping reminder for non-existent file:",
+              reminder.file,
+            );
+            skippedCount++;
+            continue;
+          }
+
+          const fileContent = await this.app.vault.read(file);
+          const lines = fileContent.split("\n");
+          if (reminder.rowNumber >= lines.length) {
+            console.warn(
+              `Skipping reminder: Line number ${reminder.rowNumber} out of bounds for file ${reminder.file}`,
+            );
+            skippedCount++;
+            continue;
+          }
+          const reminderLine = lines[reminder.rowNumber];
+
+          // Add check for undefined reminderLine before processing
+          if (reminderLine === undefined) {
+            console.warn(
+              `Skipping reminder: Could not read line ${reminder.rowNumber} from file ${reminder.file}`,
+            );
+            skippedCount++;
+            continue;
+          }
+
+          const existingMetadata = extractGoogleTaskMetadata(reminderLine);
+          const currentChecksum = generateReminderChecksum(reminder);
+          const taskInput = convertObsidianToGoogleTask(reminder);
+          let updatedMetadata: GoogleTaskMetadata | null = null;
+
+          if (existingMetadata) {
+            if (existingMetadata.checksum === currentChecksum) {
+              skippedCount++;
+              continue;
+            } else {
+              console.log(
+                `Updating task: ${reminder.title} (ID: ${existingMetadata.id})`,
+              );
+              await this._googleTasksService.updateTask(
+                targetListId,
+                existingMetadata.id,
+                taskInput,
+              );
+              updatedMetadata = {
+                id: existingMetadata.id,
+                checksum: currentChecksum,
+              };
+              updatedCount++;
+            }
+          } else {
+            console.log(`Creating new task: ${reminder.title}`);
+            const createdTask: Task = await this._googleTasksService.createTask(
+              targetListId,
+              taskInput,
+            );
+            updatedMetadata = { id: createdTask.id, checksum: currentChecksum };
+            createdCount++;
+          }
+
+          if (updatedMetadata) {
+            const updatedLine = this.updateMarkdownLineWithMetadata(
+              reminderLine,
+              updatedMetadata,
+            ); // reminderLine is now guaranteed to be a string
+            if (updatedLine !== reminderLine) {
+              lines[reminder.rowNumber] = updatedLine;
+              await this.app.vault.modify(file, lines.join("\n"));
+              console.log(`Updated markdown for task: ${reminder.title}`);
+            } else {
+              console.warn(
+                `Failed to update markdown comment for task: ${reminder.title}`,
+              );
+            }
+          }
+        } catch (individualError) {
+          console.error(
+            `Error processing reminder "${reminder.title}" in file ${reminder.file}:`,
+            individualError,
+          );
+          errorCount++;
+        }
+      }
+
+      console.log("Google Tasks synchronization finished.");
+      new Notice(
+        `Google Tasks Sync Complete: ${createdCount} created, ${updatedCount} updated, ${skippedCount} skipped, ${errorCount} errors.`,
+        5000,
+      );
+    } catch (error) {
+      console.error("Error during Google Tasks synchronization:", error);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      new Notice(`Google Tasks Sync Failed: ${errorMessage}`, 5000);
+    }
+  }
+
+  /**
+   * Updates a markdown line to include or replace the gtask metadata comment.
+   * @param originalLine The original markdown line content.
+   * @param metadata The metadata (id and checksum) to embed.
+   * @returns The updated markdown line.
+   */
+  private updateMarkdownLineWithMetadata(
+    originalLine: string,
+    metadata: GoogleTaskMetadata,
+  ): string {
+    // Remove existing gtask comment if present
+    const lineWithoutComment = originalLine
+      .replace(/<!--\s*gtask:.*?\s*-->/g, "")
+      .trimEnd();
+
+    // Construct the new comment
+    const metadataString = JSON.stringify(metadata);
+    const newComment = ` <!-- gtask:${metadataString} -->`;
+
+    return lineWithoutComment + newComment;
   }
 }

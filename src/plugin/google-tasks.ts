@@ -1111,7 +1111,7 @@ interface TokenData {
 /**
  * Task input interface for creating/updating tasks
  */
-interface TaskInput {
+export interface TaskInput {
   title: string;
   notes?: string;
   due?: string;
@@ -1122,7 +1122,7 @@ interface TaskInput {
 /**
  * Task interface from Google Tasks API
  */
-interface Task {
+export interface Task {
   id: string;
   title: string;
   notes?: string;
