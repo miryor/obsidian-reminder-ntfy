@@ -47,7 +47,8 @@ class DefaultReminderModel implements ReminderModel {
   ) {}
 
   getTitle(): string {
-    return `${this.title1.trim()} ${this.title2.trim()}`.trim();
+    const combinedTitle = `${this.title1.trim()} ${this.title2.trim()}`.trim();
+    return combinedTitle.replace(/<!--\s*gtask:.*?\s*-->/g, "").trim();
   }
   getTime(): DateTime | null {
     return DATE_TIME_FORMATTER.parse(this.time);

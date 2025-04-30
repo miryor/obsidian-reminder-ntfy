@@ -4,12 +4,12 @@ import {
   ReminderPluginFileSystem,
   ReminderPluginUI,
 } from "plugin";
-import { Reminders } from "model/reminder";
+import { Reminder, Reminders } from "model/reminder";
 import { DATE_TIME_FORMATTER } from "model/time";
 import { App, Modal, Notice, Plugin, Setting, TFile } from "obsidian";
 import type { PluginManifest } from "obsidian";
 import { GoogleTasksService } from "plugin/google-tasks";
-import type { Task } from "plugin/google-tasks";
+import type { Task, TaskInput } from "plugin/google-tasks";
 import {
   convertObsidianToGoogleTask,
   extractGoogleTaskMetadata,
@@ -383,6 +383,100 @@ export default class ReminderPlugin extends Plugin {
   }
 
   /**
+   * Handles the synchronization logic for a reminder that has existing metadata (potentially exists in Google Tasks).
+   * Fetches the task, checks if deleted, compares checksum, and updates or recreates as needed.
+   * @returns An object indicating the outcome: { status: 'updated' | 'recreated' | 'skipped' | 'error', newMetadata?: GoogleTaskMetadata | null }
+   */
+  private async handleExistingTaskSync(
+    reminder: Reminder,
+    file: TFile,
+    existingMetadata: GoogleTaskMetadata,
+    currentChecksum: string,
+    targetListId: string,
+    taskInput: TaskInput,
+  ): Promise<{
+    status: "updated" | "recreated" | "skipped" | "error";
+    newMetadata?: GoogleTaskMetadata | null;
+  }> {
+    let googleTask: Task | null = null;
+
+    // 1. Try to GET the task first
+    try {
+      googleTask = await this._googleTasksService.getTask(
+        targetListId,
+        existingMetadata.id,
+      );
+      console.log(
+        `Fetched existing task: ${reminder.title} (ID: ${existingMetadata.id})`,
+      );
+    } catch (getError) {
+      console.warn(
+        `Error fetching task ID ${existingMetadata.id} for reminder "${reminder.title}":`,
+        getError,
+      );
+      if (
+        getError instanceof Error &&
+        (getError.message.includes("404") ||
+          getError.message.toLowerCase().includes("not found"))
+      ) {
+        console.warn(`Task ID ${existingMetadata.id} not found. Recreating...`);
+        return this.recreateGoogleTaskAndUpdateComment(
+          reminder,
+          file,
+          targetListId,
+          taskInput,
+          currentChecksum,
+        );
+      } else {
+        return { status: "error" };
+      }
+    }
+
+    // 2. If GET was successful, check if task is marked deleted by Google
+    if (googleTask.deleted) {
+      console.warn(
+        `Task ID ${existingMetadata.id} ("${reminder.title}") is marked as deleted on Google Tasks. Recreating...`,
+      );
+      return this.recreateGoogleTaskAndUpdateComment(
+        reminder,
+        file,
+        targetListId,
+        taskInput,
+        currentChecksum,
+      );
+    }
+
+    // 3. If task exists and is not deleted, compare checksums
+    if (existingMetadata.checksum === currentChecksum) {
+      return { status: "skipped" };
+    }
+
+    // 4. Checksums differ, proceed with UPDATE
+    try {
+      console.log(
+        `Updating task due to changed checksum: ${reminder.title} (ID: ${existingMetadata.id})`,
+      );
+      await this._googleTasksService.updateTask(
+        targetListId,
+        existingMetadata.id,
+        taskInput,
+      );
+      const updatedMetadata = {
+        id: existingMetadata.id,
+        checksum: currentChecksum,
+      };
+      await this.updateReminderCommentInFile(reminder, file, updatedMetadata);
+      return { status: "updated", newMetadata: updatedMetadata };
+    } catch (updateError) {
+      console.error(
+        `Error during PATCH update for task ID ${existingMetadata.id} ("${reminder.title}"):`,
+        updateError,
+      );
+      return { status: "error" };
+    }
+  }
+
+  /**
    * Core logic to synchronize Obsidian reminders with Google Tasks.
    * Iterates through reminders, compares checksums, and creates/updates tasks as needed.
    */
@@ -407,6 +501,9 @@ export default class ReminderPlugin extends Plugin {
     let updatedCount = 0;
     let skippedCount = 0;
     let errorCount = 0;
+    let existingMetadata: GoogleTaskMetadata | null = null;
+    let reminderLine: string | null = null;
+    let file: TFile | null = null;
 
     try {
       const listName = this.settings.googleTasksListName.value;
@@ -445,98 +542,80 @@ export default class ReminderPlugin extends Plugin {
       );
 
       for (const reminder of obsidianReminders) {
+        existingMetadata = null;
+        reminderLine = null;
+        file = null;
+
         try {
-          if (!reminder.file) {
-            console.warn(
-              "Skipping reminder with no file path:",
-              reminder.title,
-            );
+          const lineData = await this.getReminderMarkdownLine(reminder);
+          if (lineData === null) {
             skippedCount++;
             continue;
           }
-
-          const file = this.app.vault.getAbstractFileByPath(reminder.file);
-          if (!(file instanceof TFile)) {
-            console.warn(
-              "Skipping reminder for non-existent file:",
-              reminder.file,
-            );
-            skippedCount++;
-            continue;
-          }
-
-          const fileContent = await this.app.vault.read(file);
-          const lines = fileContent.split("\n");
-          if (reminder.rowNumber >= lines.length) {
-            console.warn(
-              `Skipping reminder: Line number ${reminder.rowNumber} out of bounds for file ${reminder.file}`,
-            );
-            skippedCount++;
-            continue;
-          }
-          const reminderLine = lines[reminder.rowNumber];
-
-          if (reminderLine === undefined) {
-            console.warn(
-              `Skipping reminder: Could not read line ${reminder.rowNumber} from file ${reminder.file}`,
-            );
-            skippedCount++;
-            continue;
-          }
-
-          const existingMetadata = extractGoogleTaskMetadata(reminderLine);
+          ({ lineContent: reminderLine, file } = lineData);
+          existingMetadata = extractGoogleTaskMetadata(reminderLine);
           const currentChecksum = generateReminderChecksum(reminder);
           const taskInput = convertObsidianToGoogleTask(reminder);
-          let updatedMetadata: GoogleTaskMetadata | null = null;
 
           if (existingMetadata) {
             if (existingMetadata.checksum === currentChecksum) {
               skippedCount++;
               continue;
             } else {
-              console.log(
-                `Updating task: ${reminder.title} (ID: ${existingMetadata.id})`,
-              );
-              await this._googleTasksService.updateTask(
+              const updateResult = await this.handleExistingTaskSync(
+                reminder,
+                file,
+                existingMetadata,
+                currentChecksum,
                 targetListId,
-                existingMetadata.id,
                 taskInput,
               );
-              updatedMetadata = {
-                id: existingMetadata.id,
-                checksum: currentChecksum,
-              };
-              updatedCount++;
+              switch (updateResult.status) {
+                case "updated":
+                  updatedCount++;
+                  break;
+                case "recreated":
+                  createdCount++;
+                  break;
+                case "skipped":
+                  skippedCount++;
+                  break;
+                case "error":
+                default:
+                  errorCount++;
+                  break;
+              }
             }
           } else {
             console.log(`Creating new task: ${reminder.title}`);
-            const createdTask: Task = await this._googleTasksService.createTask(
-              targetListId,
-              taskInput,
-            );
-            updatedMetadata = { id: createdTask.id, checksum: currentChecksum };
-            createdCount++;
-          }
-
-          if (updatedMetadata) {
-            const updatedLine = this.updateMarkdownLineWithMetadata(
-              reminderLine,
-              updatedMetadata,
-            );
-            if (updatedLine !== reminderLine) {
-              lines[reminder.rowNumber] = updatedLine;
-              await this.app.vault.modify(file, lines.join("\n"));
-              console.log(`Updated markdown for task: ${reminder.title}`);
-            } else {
-              console.warn(
-                `Failed to update markdown comment for task: ${reminder.title}`,
+            try {
+              const createdTask: Task =
+                await this._googleTasksService.createTask(
+                  targetListId,
+                  taskInput,
+                );
+              const newMetadata = {
+                id: createdTask.id,
+                checksum: currentChecksum,
+              };
+              await this.updateReminderCommentInFile(
+                reminder,
+                file,
+                newMetadata,
               );
+              createdCount++;
+            } catch (createError) {
+              console.error(
+                `Failed to create task "${reminder.title}":`,
+                createError,
+              );
+              errorCount++;
             }
           }
-        } catch (individualError) {
+        } catch (loopError) {
           console.error(
-            `Error processing reminder "${reminder.title}" in file ${reminder.file}:`,
-            individualError,
+            `Unexpected error processing reminder "${reminder.title}":`,
+            loopError,
           );
           errorCount++;
         }
@@ -557,19 +636,194 @@ export default class ReminderPlugin extends Plugin {
 
   /**
    * Updates a markdown line to include or replace the gtask metadata comment.
+   * If metadata is null, it removes any existing gtask comment.
    * @param originalLine The original markdown line content.
-   * @param metadata The metadata (id and checksum) to embed.
+   * @param metadata The metadata (id and checksum) to embed, or null to remove.
    * @returns The updated markdown line.
    */
   private updateMarkdownLineWithMetadata(
     originalLine: string,
-    metadata: GoogleTaskMetadata,
+    metadata: GoogleTaskMetadata | null,
   ): string {
+    // Remove existing gtask comment if present
     const lineWithoutComment = originalLine
       .replace(/<!--\s*gtask:.*?\s*-->/g, "")
       .trimEnd();
+
+    // If metadata is null, just return the cleaned line
+    if (metadata === null) {
+      return lineWithoutComment;
+    }
+
+    // Otherwise, construct and append the new comment
     const metadataString = JSON.stringify(metadata);
     const newComment = ` <!-- gtask:${metadataString} -->`;
+
     return lineWithoutComment + newComment;
+  }
+
+  /**
+   * Updates the markdown file to add/update/remove the gtask metadata comment for a specific reminder line.
+   * Reads the file, modifies the specific line, and writes the changes back.
+   * @param reminder The reminder whose line needs updating.
+   * @param file The TFile object to modify.
+   * @param metadata The metadata to write, or null to remove the comment.
+   * @returns True if the file was successfully modified, false otherwise.
+   */
+  private async updateReminderCommentInFile(
+    reminder: Reminder,
+    file: TFile,
+    metadata: GoogleTaskMetadata | null,
+  ): Promise<boolean> {
+    try {
+      const currentFileContent = await this.app.vault.read(file);
+      const currentLines = currentFileContent.split("\n");
+
+      if (reminder.rowNumber >= currentLines.length || reminder.rowNumber < 0) {
+        console.error(
+          `Failed to update comment for "${reminder.title}": Line number ${reminder.rowNumber} out of bounds in ${file.path}.`,
+        );
+        return false;
+      }
+
+      const originalLine = currentLines[reminder.rowNumber];
+      if (originalLine === undefined) {
+        console.error(
+          `Failed to update comment for "${reminder.title}": Line ${reminder.rowNumber} content is undefined in ${file.path}.`,
+        );
+        return false;
+      }
+
+      const updatedLine = this.updateMarkdownLineWithMetadata(
+        originalLine,
+        metadata,
+      );
+
+      if (updatedLine !== originalLine) {
+        currentLines[reminder.rowNumber] = updatedLine;
+        await this.app.vault.modify(file, currentLines.join("\n"));
+        console.log(
+          `Updated markdown comment for task: "${reminder.title}" in ${file.path}`,
+        );
+        return true;
+      } else {
+        // No change needed (e.g., trying to remove a comment that wasn't there)
+        console.log(
+          `No markdown comment update needed for task: "${reminder.title}" in ${file.path}`,
+        );
+        return true; // Considered successful as the state is correct
+      }
+    } catch (error) {
+      console.error(
+        `Error updating markdown comment for task "${reminder.title}" in ${file.path}:`,
+        error,
+      );
+      return false;
+    }
+  }
+
+  /**
+   * Reads the markdown file associated with a reminder and returns the specific line content and the TFile object.
+   * @param reminder The reminder object.
+   * @returns An object containing the line content and the TFile, or null if an error occurs.
+   */
+  private async getReminderMarkdownLine(
+    reminder: Reminder,
+  ): Promise<{ lineContent: string; file: TFile } | null> {
+    if (!reminder.file) {
+      console.warn(
+        "Cannot get line for reminder with no file path:",
+        reminder.title,
+      );
+      return null;
+    }
+
+    const file = this.app.vault.getAbstractFileByPath(reminder.file);
+    if (!(file instanceof TFile)) {
+      console.warn(
+        `File not found or not a TFile for reminder: ${reminder.title} in ${reminder.file}`,
+      );
+      return null;
+    }
+
+    try {
+      const fileContent = await this.app.vault.read(file);
+      const lines = fileContent.split("\n");
+
+      if (reminder.rowNumber >= lines.length || reminder.rowNumber < 0) {
+        console.warn(
+          `Line number ${reminder.rowNumber} out of bounds for file ${reminder.file} (Total lines: ${lines.length})`,
+        );
+        return null;
+      }
+
+      const lineContent = lines[reminder.rowNumber];
+      if (lineContent === undefined) {
+        console.warn(
+          `Could not read line ${reminder.rowNumber} content from file ${reminder.file}`,
+        );
+        return null;
+      }
+      return { lineContent: lineContent, file: file };
+    } catch (error) {
+      console.error(
+        `Error reading file ${reminder.file} for reminder line:`,
+        error,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Recreates a Google Task and updates the corresponding markdown comment.
+   * Assumes the task needs recreation (e.g., due to 404 or finding it deleted).
+   * @returns An object indicating the outcome: { status: 'recreated' | 'error', newMetadata?: GoogleTaskMetadata | null }
+   */
+  private async recreateGoogleTaskAndUpdateComment(
+    reminder: Reminder,
+    file: TFile,
+    targetListId: string,
+    taskInput: TaskInput,
+    currentChecksum: string, // Pass checksum to avoid recalculating
+  ): Promise<{
+    status: "recreated" | "error";
+    newMetadata?: GoogleTaskMetadata | null;
+  }> {
+    try {
+      // 1. Attempt to remove the old comment (best effort)
+      await this.updateReminderCommentInFile(reminder, file, null);
+
+      // 2. Create the task anew
+      console.log(`Recreating task: ${reminder.title}`);
+      const createdTask: Task = await this._googleTasksService.createTask(
+        targetListId,
+        taskInput,
+      );
+      const newMetadata = { id: createdTask.id, checksum: currentChecksum }; // Use passed checksum
+
+      // 3. Attempt to add the new comment
+      const addedNewComment = await this.updateReminderCommentInFile(
+        reminder,
+        file,
+        newMetadata,
+      );
+      if (addedNewComment) {
+        console.log(
+          `Successfully recreated task "${reminder.title}" with new ID ${newMetadata.id} and updated markdown comment.`,
+        );
+        return { status: "recreated", newMetadata: newMetadata };
+      } else {
+        console.error(
+          `Recreated task "${reminder.title}" (ID: ${newMetadata.id}) but FAILED to update markdown comment.`,
+        );
+        return { status: "error" }; // Still an error if we couldn't update the comment
+      }
+    } catch (recreateError) {
+      console.error(
+        `Failed to recreate task "${reminder.title}":`,
+        recreateError,
+      );
+      return { status: "error" };
+    }
   }
 }

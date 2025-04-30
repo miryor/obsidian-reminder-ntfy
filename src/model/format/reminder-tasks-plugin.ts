@@ -53,8 +53,13 @@ export class TasksPluginReminderModel implements ReminderModel {
 
   getTitle(): string | null {
     let title = this.tokens.getTokenText("", true);
-    if (title != null && this.removeTags) {
-      title = removeTags(title);
+    if (title != null) {
+      // First, strip the gtask comment before returning
+      title = title.replace(/<!--\s*gtask:.*?\s*-->/g, "").trim();
+      // Then, optionally remove tags
+      if (this.removeTags) {
+        title = removeTags(title);
+      }
     }
     return title;
   }

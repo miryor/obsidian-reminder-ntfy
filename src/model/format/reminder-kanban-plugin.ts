@@ -164,7 +164,7 @@ export class KanbanReminderModel implements ReminderModel {
   ) {}
 
   getTitle(): string {
-    return this.title.trim();
+    return this.title.replace(/<!--\s*gtask:.*?\s*-->/g, "").trim();
   }
 
   getTime(): DateTime | null {

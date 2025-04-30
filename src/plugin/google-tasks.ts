@@ -1124,17 +1124,22 @@ export interface TaskInput {
  */
 export interface Task {
   id: string;
+  etag?: string;
   title: string;
+  updated?: string;
+  selfLink?: string;
+  parent?: string;
+  position?: string;
   notes?: string;
+  status?: "needsAction" | "completed";
   due?: string;
   completed?: string;
-  status?: "needsAction" | "completed";
-  position?: string;
-  etag?: string;
-  updated?: string;
+  deleted?: boolean;
+  hidden?: boolean;
   links?: Array<{
     type: string;
     description: string;
     link: string;
   }>;
+  webViewLink?: string;
 }
