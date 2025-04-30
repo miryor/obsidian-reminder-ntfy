@@ -823,10 +823,27 @@ export default class ReminderPlugin extends Plugin {
   }
 
   public async syncGoogleTasks(): Promise<void> {
-    if (!this.settings.enableGoogleTasks.value) return;
-    if (!this._googleTasksService.isAuthenticated()) return;
+    console.log("syncGoogleTasks command triggered.");
 
-    console.log("Starting Google Tasks synchronization (v2)...");
+    // Check if integration is enabled
+    if (!this.settings.enableGoogleTasks.value) {
+      console.log("Google Tasks sync skipped: Integration disabled.");
+      new Notice("Google Tasks integration is disabled in settings.", 3000);
+      return;
+    }
+
+    // Ensure authenticated, attempting refresh/re-auth if needed
+    const isAuthenticated = await this.ensureGoogleTasksAuthenticated();
+    if (!isAuthenticated) {
+      console.log("Google Tasks sync stopped: Authentication not established.");
+      // Notice is already handled within ensureGoogleTasksAuthenticated
+      return;
+    }
+
+    // Proceed with sync only if authenticated
+    console.log(
+      "Authentication check passed. Starting Google Tasks synchronization (v2)...",
+    );
     new Notice("Starting Google Tasks sync...");
 
     let createdCount = 0;
@@ -950,6 +967,68 @@ export default class ReminderPlugin extends Plugin {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
       new Notice(`Google Tasks Sync Failed: ${errorMessage}`, 5000);
+    }
+  }
+
+  /**
+   * Ensures the Google Tasks service is authenticated, attempting refresh or re-auth if necessary.
+   * @returns True if authenticated (or auth flow initiated), false if authentication failed definitively.
+   */
+  private async ensureGoogleTasksAuthenticated(): Promise<boolean> {
+    console.log("Checking Google Tasks authentication status...");
+    if (this._googleTasksService.isAuthenticated()) {
+      console.log("Already authenticated.");
+      return true;
+    }
+
+    // Not authenticated, attempt token refresh
+    console.log("Google Tasks not authenticated. Attempting token refresh...");
+    try {
+      await this._googleTasksService.refreshAccessToken();
+      console.log("Token refresh successful during check.");
+
+      // Verify authentication succeeded after refresh
+      if (this._googleTasksService.isAuthenticated()) {
+        console.log("Authentication confirmed after refresh.");
+        return true;
+      } else {
+        // This case might occur if the refresh call itself didn't error but didn't result in valid tokens
+        console.error(
+          "Authentication still failed after token refresh attempt completed without error.",
+        );
+        new Notice(
+          "Google Tasks authentication failed. Please try again.",
+          5000,
+        );
+        return false;
+      }
+    } catch (refreshError) {
+      console.error("Automatic token refresh failed:", refreshError);
+      const errorMessage =
+        refreshError instanceof Error
+          ? refreshError.message
+          : String(refreshError);
+
+      // If refresh token is invalid, trigger the full auth flow
+      if (errorMessage.toLowerCase().includes("invalid_grant")) {
+        console.log(
+          "Refresh token invalid. Triggering full authentication flow...",
+        );
+        new Notice(
+          "Google Tasks session invalid. Please re-authenticate.",
+          4000,
+        );
+        // Start the auth flow, but don't wait for it. Return true as auth *is being* handled.
+        this.authenticateWithGoogleTasks();
+        return false; // Return false because immediate authentication is not guaranteed
+      } else {
+        // For other errors, just notify the user and indicate failure
+        new Notice(
+          `Google Tasks auto-refresh failed: ${errorMessage}. Please try syncing again later or authenticate manually.`,
+          5000,
+        );
+        return false;
+      }
     }
   }
 }
