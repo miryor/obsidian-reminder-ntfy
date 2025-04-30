@@ -631,23 +631,48 @@ export class GoogleTasksService {
   }
 
   /**
-   * Get all tasks from a task list
+   * Get tasks from a task list, with optional filtering.
+   * @param taskListId The ID of the task list (use '@default' for the default list).
+   * @param options Optional parameters for filtering.
+   *                - showCompleted: Whether to include completed tasks.
+   *                - showHidden: Whether to include hidden tasks.
+   *                - dueMin/dueMax: Filter by due date range (RFC3339 timestamp).
+   *                - updatedMin: Filter by last update time (RFC3339 timestamp).
    */
-  public async getTasks(taskListId: string): Promise<Task[]> {
+  public async getTasks(
+    taskListId: string,
+    options: {
+      showCompleted?: boolean;
+      showHidden?: boolean;
+      dueMin?: string;
+      dueMax?: string;
+      updatedMin?: string;
+    } = {},
+  ): Promise<Task[]> {
     if (!this.isAuthenticated()) {
       throw new Error("Not authenticated with Google Tasks");
     }
 
     try {
+      const url = new URL(
+        `https://tasks.googleapis.com/tasks/v1/lists/${taskListId}/tasks`,
+      );
+      // Add query parameters based on options
+      if (options.showCompleted !== undefined)
+        url.searchParams.append("showCompleted", String(options.showCompleted));
+      if (options.showHidden !== undefined)
+        url.searchParams.append("showHidden", String(options.showHidden));
+      if (options.dueMin) url.searchParams.append("dueMin", options.dueMin);
+      if (options.dueMax) url.searchParams.append("dueMax", options.dueMax);
+      if (options.updatedMin)
+        url.searchParams.append("updatedMin", options.updatedMin);
+
       const response = await this.executeWithRetry(() =>
-        fetch(
-          `https://tasks.googleapis.com/tasks/v1/lists/${taskListId}/tasks`,
-          {
-            headers: {
-              Authorization: `Bearer ${this.tokenData?.access_token}`,
-            },
+        fetch(url.toString(), {
+          headers: {
+            Authorization: `Bearer ${this.tokenData?.access_token}`,
           },
-        ),
+        }),
       );
 
       const data = await response.json();

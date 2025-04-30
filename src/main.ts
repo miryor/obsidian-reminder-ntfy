@@ -394,32 +394,120 @@ export default class ReminderPlugin extends Plugin {
     currentChecksum: string,
     targetListId: string,
     taskInput: TaskInput,
+    activeGoogleTasksMap: Map<string, Task>,
   ): Promise<{
-    status: "updated" | "recreated" | "skipped" | "error";
+    status: "updated" | "recreated" | "skipped" | "completedLocally" | "error";
     newMetadata?: GoogleTaskMetadata | null;
   }> {
-    let googleTask: Task | null = null;
+    // Check if the task is in the active list fetched earlier
+    const googleTask = activeGoogleTasksMap.get(existingMetadata.id);
 
-    // 1. Try to GET the task first
+    if (googleTask) {
+      // Task exists and is active, compare checksums
+      if (existingMetadata.checksum === currentChecksum) {
+        return { status: "skipped" };
+      }
+
+      // Checksums differ, proceed with UPDATE
+      try {
+        console.log(
+          `Updating task due to changed checksum: ${reminder.title} (ID: ${existingMetadata.id})`,
+        );
+        await this._googleTasksService.updateTask(
+          targetListId,
+          existingMetadata.id,
+          taskInput,
+        );
+        const updatedMetadata = {
+          id: existingMetadata.id,
+          checksum: currentChecksum,
+        };
+        await this.updateReminderCommentInFile(reminder, file, updatedMetadata);
+        return { status: "updated", newMetadata: updatedMetadata };
+      } catch (updateError) {
+        console.error(
+          `Error during PATCH update for task ID ${existingMetadata.id} ("${reminder.title}"):`,
+          updateError,
+        );
+        return { status: "error" };
+      }
+    } else {
+      // Task NOT found in the active list - means it's completed or deleted in Google
+      console.warn(
+        `Task ID ${existingMetadata.id} ("${reminder.title}") not found in active Google Tasks list. Checking status...`,
+      );
+      return this.handlePotentiallyStaleLink(
+        reminder,
+        file,
+        existingMetadata,
+        targetListId,
+        taskInput,
+        currentChecksum,
+      );
+    }
+  }
+
+  /**
+   * Handles a reminder whose linked Google Task ID was not found in the active task list.
+   * Fetches the specific task to determine if it was completed or deleted, then takes appropriate action.
+   */
+  private async handlePotentiallyStaleLink(
+    reminder: Reminder,
+    file: TFile,
+    existingMetadata: GoogleTaskMetadata,
+    targetListId: string,
+    taskInput: TaskInput,
+    currentChecksum: string,
+  ): Promise<{
+    status: "recreated" | "completedLocally" | "error";
+    newMetadata?: GoogleTaskMetadata | null;
+  }> {
     try {
-      googleTask = await this._googleTasksService.getTask(
+      const googleTask = await this._googleTasksService.getTask(
         targetListId,
         existingMetadata.id,
       );
-      console.log(
-        `Fetched existing task: ${reminder.title} (ID: ${existingMetadata.id})`,
-      );
+
+      // Task was found, check its status
+      if (googleTask.status === "completed") {
+        console.log(
+          `Task ID ${existingMetadata.id} ("${reminder.title}") was completed in Google Tasks. Marking as done locally.`,
+        );
+        // TODO: Implement logic to mark reminder as done in Obsidian
+        // This might involve calling a file modification helper
+        const completed = await this.handleCompleteObsidianReminder(
+          reminder,
+          file,
+        );
+        if (completed) {
+          return { status: "completedLocally" }; // Maybe return updated metadata if checksum changes?
+        } else {
+          return { status: "error" }; // Error marking as done locally
+        }
+      } else {
+        // Task exists but is not completed (unexpected state if not in active list, maybe deleted=true?)
+        console.warn(
+          `Task ID ${existingMetadata.id} ("${reminder.title}") has unexpected status '${googleTask.status}' or state. Recreating.`,
+        );
+        // Fall through to recreate logic as a safeguard
+        return this.recreateGoogleTaskAndUpdateComment(
+          reminder,
+          file,
+          targetListId,
+          taskInput,
+          currentChecksum,
+        );
+      }
     } catch (getError) {
-      console.warn(
-        `Error fetching task ID ${existingMetadata.id} for reminder "${reminder.title}":`,
-        getError,
-      );
+      // Check if it was specifically a 404 error (meaning task was deleted)
       if (
         getError instanceof Error &&
         (getError.message.includes("404") ||
           getError.message.toLowerCase().includes("not found"))
       ) {
-        console.warn(`Task ID ${existingMetadata.id} not found. Recreating...`);
+        console.warn(
+          `Task ID ${existingMetadata.id} ("${reminder.title}") confirmed deleted (404). Recreating...`,
+        );
         return this.recreateGoogleTaskAndUpdateComment(
           reminder,
           file,
@@ -428,209 +516,169 @@ export default class ReminderPlugin extends Plugin {
           currentChecksum,
         );
       } else {
+        // It was a different error during GET
+        console.error(
+          `Error fetching potentially stale task ID ${existingMetadata.id}:`,
+          getError,
+        );
         return { status: "error" };
       }
     }
+  }
 
-    // 2. If GET was successful, check if task is marked deleted by Google
-    if (googleTask.deleted) {
-      console.warn(
-        `Task ID ${existingMetadata.id} ("${reminder.title}") is marked as deleted on Google Tasks. Recreating...`,
-      );
-      return this.recreateGoogleTaskAndUpdateComment(
-        reminder,
-        file,
-        targetListId,
-        taskInput,
-        currentChecksum,
-      );
-    }
-
-    // 3. If task exists and is not deleted, compare checksums
-    if (existingMetadata.checksum === currentChecksum) {
-      return { status: "skipped" };
-    }
-
-    // 4. Checksums differ, proceed with UPDATE
+  /**
+   * Marks an Obsidian reminder as complete in the markdown file.
+   * TODO: Implement the actual markdown modification.
+   */
+  private async handleCompleteObsidianReminder(
+    reminder: Reminder,
+    file: TFile,
+  ): Promise<boolean> {
+    console.log(
+      `Marking reminder "${reminder.title}" in ${file.path} as complete locally.`,
+    );
     try {
-      console.log(
-        `Updating task due to changed checksum: ${reminder.title} (ID: ${existingMetadata.id})`,
+      const fileContent = await this.app.vault.read(file);
+      const lines = fileContent.split("\n");
+
+      if (reminder.rowNumber >= lines.length || reminder.rowNumber < 0) {
+        console.error(
+          `Cannot mark reminder complete: Line number ${reminder.rowNumber} out of bounds for ${file.path}.`,
+        );
+        return false;
+      }
+
+      let originalLine = lines[reminder.rowNumber];
+      if (originalLine === undefined) {
+        console.error(
+          `Cannot mark reminder complete: Line ${reminder.rowNumber} content is undefined in ${file.path}.`,
+        );
+        return false;
+      }
+
+      const checkboxRegex = /^(\s*[-*]|[0-9]+\.)\s*\[ \]/;
+      if (checkboxRegex.test(originalLine)) {
+        const modifiedLine = originalLine.replace(checkboxRegex, "$1 [x]");
+        lines[reminder.rowNumber] = modifiedLine;
+        reminder.done = true;
+
+        const currentChecksum = generateReminderChecksum(reminder);
+        const existingMetadata = extractGoogleTaskMetadata(originalLine);
+
+        if (existingMetadata) {
+          const newMetadata: GoogleTaskMetadata = {
+            id: existingMetadata.id,
+            checksum: currentChecksum,
+          };
+          // Update comment on the already modified line
+          lines[reminder.rowNumber] = this.updateMarkdownLineWithMetadata(
+            modifiedLine,
+            newMetadata,
+          );
+        } else {
+          console.warn(
+            `Could not find Google Task metadata comment for completed reminder "${reminder.title}". Checksum not updated in comment.`,
+          );
+        }
+
+        await this.app.vault.modify(file, lines.join("\n"));
+        console.log(
+          `Successfully marked reminder "${reminder.title}" as complete in ${file.path}.`,
+        );
+        return true;
+      } else {
+        console.warn(
+          `Reminder line "${reminder.title}" in ${file.path} did not match expected checkbox format for completion.`,
+        );
+        return true;
+      }
+    } catch (error) {
+      console.error(
+        `Error marking reminder "${reminder.title}" as complete in ${file.path}:`,
+        error,
       );
-      await this._googleTasksService.updateTask(
+      return false;
+    }
+  }
+
+  /**
+   * Creates a Google Task and updates the corresponding markdown comment.
+   */
+  private async handleCreateGoogleTask(
+    reminder: Reminder,
+    file: TFile,
+    targetListId: string,
+  ): Promise<{
+    status: "created" | "error";
+    newMetadata?: GoogleTaskMetadata | null;
+  }> {
+    console.log(`Creating new task: ${reminder.title}`);
+    try {
+      const taskInput = convertObsidianToGoogleTask(reminder);
+      const currentChecksum = generateReminderChecksum(reminder);
+      const createdTask: Task = await this._googleTasksService.createTask(
         targetListId,
-        existingMetadata.id,
         taskInput,
       );
-      const updatedMetadata = {
-        id: existingMetadata.id,
-        checksum: currentChecksum,
-      };
-      await this.updateReminderCommentInFile(reminder, file, updatedMetadata);
-      return { status: "updated", newMetadata: updatedMetadata };
-    } catch (updateError) {
-      console.error(
-        `Error during PATCH update for task ID ${existingMetadata.id} ("${reminder.title}"):`,
-        updateError,
-      );
+      const newMetadata = { id: createdTask.id, checksum: currentChecksum };
+      await this.updateReminderCommentInFile(reminder, file, newMetadata);
+      return { status: "created", newMetadata: newMetadata };
+    } catch (createError) {
+      console.error(`Failed to create task "${reminder.title}":`, createError);
       return { status: "error" };
     }
   }
 
   /**
-   * Core logic to synchronize Obsidian reminders with Google Tasks.
-   * Iterates through reminders, compares checksums, and creates/updates tasks as needed.
+   * Recreates a Google Task and updates the corresponding markdown comment.
+   * Assumes the task needs recreation (e.g., due to 404 or finding it deleted).
+   * @returns An object indicating the outcome: { status: 'recreated' | 'error', newMetadata?: GoogleTaskMetadata | null }
    */
-  public async syncGoogleTasks(): Promise<void> {
-    if (!this.settings.enableGoogleTasks.value) {
-      new Notice("Google Tasks integration is disabled in settings.", 3000);
-      return;
-    }
-
-    if (!this._googleTasksService.isAuthenticated()) {
-      new Notice(
-        "Not authenticated with Google Tasks. Please authenticate first.",
-        3000,
-      );
-      return;
-    }
-
-    console.log("Starting Google Tasks synchronization...");
-    new Notice("Starting Google Tasks sync...");
-
-    let createdCount = 0;
-    let updatedCount = 0;
-    let skippedCount = 0;
-    let errorCount = 0;
-    let existingMetadata: GoogleTaskMetadata | null = null;
-    let reminderLine: string | null = null;
-    let file: TFile | null = null;
-
+  private async recreateGoogleTaskAndUpdateComment(
+    reminder: Reminder,
+    file: TFile,
+    targetListId: string,
+    taskInput: TaskInput,
+    currentChecksum: string, // Pass checksum to avoid recalculating
+  ): Promise<{
+    status: "recreated" | "error";
+    newMetadata?: GoogleTaskMetadata | null;
+  }> {
     try {
-      const listName = this.settings.googleTasksListName.value;
-      let taskList = await this._googleTasksService.getTaskListByName(listName);
+      // 1. Attempt to remove the old comment (best effort)
+      await this.updateReminderCommentInFile(reminder, file, null);
 
-      if (!taskList) {
-        console.log(`Task list "${listName}" not found. Creating it...`);
-        try {
-          taskList = await this._googleTasksService.createTaskList(listName);
-          console.log(
-            `Successfully created task list "${listName}":`,
-            taskList,
-          );
-        } catch (createError) {
-          console.error(
-            `Failed to find or create task list "${listName}":`,
-            createError,
-          );
-          const errorMessage =
-            createError instanceof Error
-              ? createError.message
-              : String(createError);
-          new Notice(
-            `Failed to find/create Google Tasks list: ${errorMessage}`,
-            5000,
-          );
-          return;
-        }
-      }
-      const targetListId = taskList.id;
-
-      // Correctly access the reminders array
-      const obsidianReminders = this._reminders.reminders; // Use the public 'reminders' property
-      console.log(
-        `Found ${obsidianReminders.length} Obsidian reminders to process.`,
+      // 2. Create the task anew
+      console.log(`Recreating task: ${reminder.title}`);
+      const createdTask: Task = await this._googleTasksService.createTask(
+        targetListId,
+        taskInput,
       );
+      const newMetadata = { id: createdTask.id, checksum: currentChecksum }; // Use passed checksum
 
-      for (const reminder of obsidianReminders) {
-        existingMetadata = null;
-        reminderLine = null;
-        file = null;
-
-        try {
-          const lineData = await this.getReminderMarkdownLine(reminder);
-          if (lineData === null) {
-            skippedCount++;
-            continue;
-          }
-          ({ lineContent: reminderLine, file } = lineData);
-          existingMetadata = extractGoogleTaskMetadata(reminderLine);
-          const currentChecksum = generateReminderChecksum(reminder);
-          const taskInput = convertObsidianToGoogleTask(reminder);
-
-          if (existingMetadata) {
-            if (existingMetadata.checksum === currentChecksum) {
-              skippedCount++;
-              continue;
-            } else {
-              const updateResult = await this.handleExistingTaskSync(
-                reminder,
-                file,
-                existingMetadata,
-                currentChecksum,
-                targetListId,
-                taskInput,
-              );
-              switch (updateResult.status) {
-                case "updated":
-                  updatedCount++;
-                  break;
-                case "recreated":
-                  createdCount++;
-                  break;
-                case "skipped":
-                  skippedCount++;
-                  break;
-                case "error":
-                default:
-                  errorCount++;
-                  break;
-              }
-            }
-          } else {
-            console.log(`Creating new task: ${reminder.title}`);
-            try {
-              const createdTask: Task =
-                await this._googleTasksService.createTask(
-                  targetListId,
-                  taskInput,
-                );
-              const newMetadata = {
-                id: createdTask.id,
-                checksum: currentChecksum,
-              };
-              await this.updateReminderCommentInFile(
-                reminder,
-                file,
-                newMetadata,
-              );
-              createdCount++;
-            } catch (createError) {
-              console.error(
-                `Failed to create task "${reminder.title}":`,
-                createError,
-              );
-              errorCount++;
-            }
-          }
-        } catch (loopError) {
-          console.error(
-            `Unexpected error processing reminder "${reminder.title}":`,
-            loopError,
-          );
-          errorCount++;
-        }
-      }
-
-      console.log("Google Tasks synchronization finished.");
-      new Notice(
-        `Google Tasks Sync Complete: ${createdCount} created, ${updatedCount} updated, ${skippedCount} skipped, ${errorCount} errors.`,
-        5000,
+      // 3. Attempt to add the new comment
+      const addedNewComment = await this.updateReminderCommentInFile(
+        reminder,
+        file,
+        newMetadata,
       );
-    } catch (error) {
-      console.error("Error during Google Tasks synchronization:", error);
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      new Notice(`Google Tasks Sync Failed: ${errorMessage}`, 5000);
+      if (addedNewComment) {
+        console.log(
+          `Successfully recreated task "${reminder.title}" with new ID ${newMetadata.id} and updated markdown comment.`,
+        );
+        return { status: "recreated", newMetadata: newMetadata };
+      } else {
+        console.error(
+          `Recreated task "${reminder.title}" (ID: ${newMetadata.id}) but FAILED to update markdown comment.`,
+        );
+        return { status: "error" }; // Still an error if we couldn't update the comment
+      }
+    } catch (recreateError) {
+      console.error(
+        `Failed to recreate task "${reminder.title}":`,
+        recreateError,
+      );
+      return { status: "error" };
     }
   }
 
@@ -774,56 +822,134 @@ export default class ReminderPlugin extends Plugin {
     }
   }
 
-  /**
-   * Recreates a Google Task and updates the corresponding markdown comment.
-   * Assumes the task needs recreation (e.g., due to 404 or finding it deleted).
-   * @returns An object indicating the outcome: { status: 'recreated' | 'error', newMetadata?: GoogleTaskMetadata | null }
-   */
-  private async recreateGoogleTaskAndUpdateComment(
-    reminder: Reminder,
-    file: TFile,
-    targetListId: string,
-    taskInput: TaskInput,
-    currentChecksum: string, // Pass checksum to avoid recalculating
-  ): Promise<{
-    status: "recreated" | "error";
-    newMetadata?: GoogleTaskMetadata | null;
-  }> {
+  public async syncGoogleTasks(): Promise<void> {
+    if (!this.settings.enableGoogleTasks.value) return;
+    if (!this._googleTasksService.isAuthenticated()) return;
+
+    console.log("Starting Google Tasks synchronization (v2)...");
+    new Notice("Starting Google Tasks sync...");
+
+    let createdCount = 0;
+    let updatedCount = 0;
+    let skippedCount = 0;
+    let completedLocallyCount = 0;
+    let errorCount = 0;
+
     try {
-      // 1. Attempt to remove the old comment (best effort)
-      await this.updateReminderCommentInFile(reminder, file, null);
-
-      // 2. Create the task anew
-      console.log(`Recreating task: ${reminder.title}`);
-      const createdTask: Task = await this._googleTasksService.createTask(
-        targetListId,
-        taskInput,
-      );
-      const newMetadata = { id: createdTask.id, checksum: currentChecksum }; // Use passed checksum
-
-      // 3. Attempt to add the new comment
-      const addedNewComment = await this.updateReminderCommentInFile(
-        reminder,
-        file,
-        newMetadata,
-      );
-      if (addedNewComment) {
-        console.log(
-          `Successfully recreated task "${reminder.title}" with new ID ${newMetadata.id} and updated markdown comment.`,
+      // 1. Get target task list ID
+      const listName = this.settings.googleTasksListName.value;
+      const taskList =
+        await this._googleTasksService.getTaskListByName(listName);
+      // TODO: Handle case where taskList is not found (maybe create it, requires _googleTasksService.createTaskList)
+      if (!taskList) {
+        console.error(`Target Google Tasks list "${listName}" not found.`);
+        new Notice(
+          `Google Tasks Sync Error: List "${listName}" not found.`,
+          5000,
         );
-        return { status: "recreated", newMetadata: newMetadata };
-      } else {
-        console.error(
-          `Recreated task "${reminder.title}" (ID: ${newMetadata.id}) but FAILED to update markdown comment.`,
-        );
-        return { status: "error" }; // Still an error if we couldn't update the comment
+        return;
       }
-    } catch (recreateError) {
-      console.error(
-        `Failed to recreate task "${reminder.title}":`,
-        recreateError,
+      const targetListId = taskList.id;
+
+      // 2. Fetch *active* tasks from Google Tasks
+      console.log(`Fetching active tasks from Google list "${listName}"...`);
+      const googleTasks = await this._googleTasksService.getTasks(
+        targetListId,
+        { showCompleted: false, showHidden: false },
       );
-      return { status: "error" };
+      const activeGoogleTasksMap = new Map<string, Task>();
+      googleTasks.forEach((task) => activeGoogleTasksMap.set(task.id, task));
+      console.log(`Found ${activeGoogleTasksMap.size} active tasks in Google.`);
+
+      // 3. Get all Obsidian reminders
+      const obsidianReminders = this._reminders.reminders;
+      console.log(
+        `Found ${obsidianReminders.length} Obsidian reminders to process.`,
+      );
+
+      // 4. Iterate through Obsidian reminders and reconcile
+      for (const reminder of obsidianReminders) {
+        try {
+          const lineData = await this.getReminderMarkdownLine(reminder);
+          if (lineData === null) {
+            skippedCount++;
+            continue;
+          }
+          const { lineContent, file } = lineData;
+          const existingMetadata = extractGoogleTaskMetadata(lineContent);
+          const currentChecksum = generateReminderChecksum(reminder);
+          const taskInput = convertObsidianToGoogleTask(reminder);
+
+          let resultStatus:
+            | "created"
+            | "updated"
+            | "recreated"
+            | "skipped"
+            | "completedLocally"
+            | "error" = "error";
+
+          if (existingMetadata) {
+            const syncResult = await this.handleExistingTaskSync(
+              reminder,
+              file,
+              existingMetadata,
+              currentChecksum,
+              targetListId,
+              taskInput,
+              activeGoogleTasksMap,
+            );
+            resultStatus = syncResult.status;
+          } else {
+            const createResult = await this.handleCreateGoogleTask(
+              reminder,
+              file,
+              targetListId,
+            );
+            resultStatus = createResult.status;
+          }
+
+          switch (resultStatus) {
+            case "created":
+              createdCount++;
+              break;
+            case "updated":
+              updatedCount++;
+              break;
+            case "recreated":
+              createdCount++;
+              break;
+            case "skipped":
+              skippedCount++;
+              break;
+            case "completedLocally":
+              completedLocallyCount++;
+              break;
+            case "error":
+            default:
+              errorCount++;
+              break;
+          }
+        } catch (loopError) {
+          console.error(
+            `Unexpected error processing reminder "${reminder.title}" in file ${reminder.file}:`,
+            loopError,
+          );
+          errorCount++;
+        }
+      } // End reminder loop
+
+      // TODO: (Future Task) Handle tasks in Google that are NOT in Obsidian (e.g., delete them from Google?)
+
+      console.log("Google Tasks synchronization finished.");
+      new Notice(
+        `Google Tasks Sync Complete: ${createdCount} created/recreated, ${updatedCount} updated, ${completedLocallyCount} completed locally, ${skippedCount} skipped, ${errorCount} errors.`,
+        7000,
+      );
+    } catch (error) {
+      console.error("Error during Google Tasks synchronization setup:", error);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      new Notice(`Google Tasks Sync Failed: ${errorMessage}`, 5000);
     }
   }
 }

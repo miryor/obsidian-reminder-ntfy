@@ -305,32 +305,52 @@ export class TasksPluginFormat extends TodoBasedReminderFormat<TasksPluginRemind
       return undefined;
     }
 
+    // Preserve original time components
+    const originalHour = dtStart.get("hour");
+    const originalMinute = dtStart.get("minute");
+    const originalSecond = dtStart.get("second");
+    const originalMillisecond = dtStart.get("millisecond");
+
+    // Determine the starting point for RRule calculation
+    let calculationStart = dtStart.clone();
     const today = this.config
       .getParameter(ReminderFormatParameterKey.now)
       .moment();
-    today.set("hour", dtStart.get("hour"));
-    today.set("minute", dtStart.get("minute"));
-    today.set("second", dtStart.get("second"));
-    today.set("millisecond", dtStart.get("millisecond"));
-    if (today.isAfter(dtStart)) {
-      dtStart = today;
+
+    // Use the later of dtStart or now (with original time) as the base for finding the *next* occurrence
+    const nowWithOriginalTime = today.clone().set({
+      hour: originalHour,
+      minute: originalMinute,
+      second: originalSecond,
+      millisecond: originalMillisecond,
+    });
+
+    if (nowWithOriginalTime.isAfter(calculationStart)) {
+      calculationStart = nowWithOriginalTime;
     }
 
-    // clone dtStart because dtStart will be modified by utc() call.
-    const base = dtStart.clone();
+    // Set dtstart for rrule using the determined calculation start time
+    rruleOptions.dtstart = calculationStart.toDate();
 
-    // process rrule
-    rruleOptions.dtstart = dtStart.utc(true).toDate();
     const rrule = new RRule(rruleOptions);
-    const rdate = rrule.after(dtStart.toDate(), false);
-    if (rdate == null) {
+    // IMPORTANT: Use inclusive=true if the calculationStart itself could be a valid next date
+    // For "every day" starting from today, we want today if rule matches, otherwise tomorrow.
+    // For safety, using false to get the date strictly *after* calculationStart.
+    const nextOccurrenceDate = rrule.after(calculationStart.toDate(), false);
+
+    if (nextOccurrenceDate == null) {
       return undefined;
     }
 
-    // apply rrule to `base`
-    const diff = rdate.getTime() - rruleOptions.dtstart.getTime();
-    base.add(diff, "millisecond");
-    return base.toDate();
+    // Construct the final date using the date part from nextOccurrenceDate and apply original time parts
+    const nextMoment = moment(nextOccurrenceDate).set({
+      hour: originalHour,
+      minute: originalMinute,
+      second: originalSecond,
+      millisecond: originalMillisecond,
+    });
+
+    return nextMoment.toDate();
   }
 
   newReminder(
