@@ -43,6 +43,7 @@ export class Settings {
   enableGoogleTasks: SettingModel<boolean, boolean>;
   googleTasksOAuthPort: SettingModel<number, number>;
   googleTasksListName: SettingModel<string, string>;
+  googleTasksClientId: SettingModel<string, string>;
 
   constructor() {
     const reminderFormatSettings = new ReminderFormatSettings(this.settings);
@@ -246,6 +247,22 @@ export class Settings {
       .text("obsidian")
       .build(new RawSerde());
 
+    this.googleTasksClientId = this.settings
+      .newSettingBuilder()
+      .key("googleTasksClientId")
+      .name("Google Tasks Client ID")
+      .desc(
+        "Client ID for Google Cloud OAuth credentials. Get this from Google Cloud Console.",
+      )
+      .text(
+        "332129866391-i3fkaf0h3pb0c345mgclbaorf1pbhs9c.apps.googleusercontent.com",
+      )
+      .placeHolder("Enter your Google Cloud Client ID")
+      .onAnyValueChanged((context) => {
+        context.setEnabled(this.enableGoogleTasks.value);
+      })
+      .build(new RawSerde());
+
     this.settings
       .newGroup("Notification Settings")
       .addSettings(
@@ -285,6 +302,7 @@ export class Settings {
         this.enableGoogleTasks,
         this.googleTasksOAuthPort,
         this.googleTasksListName,
+        this.googleTasksClientId,
       );
 
     const config = new ReminderFormatConfig();

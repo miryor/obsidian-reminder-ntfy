@@ -7,7 +7,6 @@ import type ReminderPlugin from "main";
  * using OAuth 2.0 with PKCE for a secure authentication flow.
  */
 export class GoogleTasksService {
-  private clientId: string = "";
   private redirectUri: string = "";
   private tokenData: TokenData | null = null;
   private authServer: GoogleAuthServer | null = null;
@@ -15,8 +14,6 @@ export class GoogleTasksService {
   private authInProgress: boolean = false;
 
   constructor(private plugin: ReminderPlugin) {
-    this.clientId =
-      "332129866391-i3fkaf0h3pb0c345mgclbaorf1pbhs9c.apps.googleusercontent.com";
     this.updateRedirectUri();
   }
 
@@ -88,7 +85,10 @@ export class GoogleTasksService {
 
       // Construct authorization URL
       const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
-      authUrl.searchParams.append("client_id", this.clientId);
+      authUrl.searchParams.append(
+        "client_id",
+        this.plugin.settings.googleTasksClientId.value,
+      );
       authUrl.searchParams.append("redirect_uri", currentRedirectUri);
       authUrl.searchParams.append("response_type", "code");
       authUrl.searchParams.append(
@@ -144,14 +144,17 @@ export class GoogleTasksService {
 
       const tokenEndpoint = "https://oauth2.googleapis.com/token";
       const params = new URLSearchParams();
-      params.append("client_id", this.clientId);
+      params.append(
+        "client_id",
+        this.plugin.settings.googleTasksClientId.value,
+      );
       params.append("code", authCode);
       params.append("code_verifier", codeVerifier);
       params.append("grant_type", "authorization_code");
       params.append("redirect_uri", savedRedirectUri);
 
       console.log("Token exchange parameters:", {
-        clientId: this.clientId,
+        clientId: this.plugin.settings.googleTasksClientId.value,
         redirectUri: savedRedirectUri,
         // Sensitive fields omitted for logging
       });
@@ -242,7 +245,7 @@ export class GoogleTasksService {
           "Content-Type": "application/x-www-form-urlencoded",
         },
         body: new URLSearchParams({
-          client_id: this.clientId,
+          client_id: this.plugin.settings.googleTasksClientId.value,
           refresh_token: this.tokenData.refresh_token,
           grant_type: "refresh_token",
         }),
