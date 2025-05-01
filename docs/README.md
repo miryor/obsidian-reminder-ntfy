@@ -4,12 +4,6 @@ This directory contains documentation for the Obsidian Reminder plugin with Goog
 
 ## Contents
 
-### Authentication Documentation
-
-- [Google Tasks Authentication](google-tasks-auth.md) - Comprehensive guide to OAuth 2.0 with PKCE for Google Tasks API
-- [OAuth Flow Comparison](oauth-comparison.md) - Comparison between traditional OAuth and PKCE-enhanced OAuth
-- [PKCE Flow Diagram](diagrams/pkce-flow.md) - Visual representation of the PKCE authentication flow
-
 ## Usage
 
 This documentation is intended for:

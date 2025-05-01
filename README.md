@@ -35,6 +35,9 @@ Alternatively, you can postpone the reminder by selecting `Remind Me Later`.
 
 <img src="https://raw.githubusercontent.com/uphy/obsidian-reminder/master/images/reminder-notification2.png" width="600" />
 
+#### Google Tasks Sync
+
+Synchronize your Obsidian reminders with Google Tasks ([Setup Guide](docs/google-tasks-auth.md)).
 
 #### Interoperability with other plugins
 

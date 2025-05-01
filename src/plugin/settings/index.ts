@@ -254,9 +254,7 @@ export class Settings {
       .desc(
         "Client ID for Google Cloud OAuth credentials. Get this from Google Cloud Console.",
       )
-      .text(
-        "332129866391-i3fkaf0h3pb0c345mgclbaorf1pbhs9c.apps.googleusercontent.com",
-      )
+      .text("")
       .placeHolder("Enter your Google Cloud Client ID")
       .onAnyValueChanged((context) => {
         context.setEnabled(this.enableGoogleTasks.value);

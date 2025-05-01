@@ -936,6 +936,17 @@ export class GoogleTasksService {
 
     return enhancedError;
   }
+
+  /**
+   * Checks if a refresh token exists in the stored token data.
+   */
+  public hasRefreshToken(): boolean {
+    // Ensure token data is loaded if it hasn't been already
+    if (!this.tokenData) {
+      this.loadTokenData();
+    }
+    return !!this.tokenData?.refresh_token;
+  }
 }
 
 /**
