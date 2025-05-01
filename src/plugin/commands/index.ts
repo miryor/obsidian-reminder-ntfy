@@ -75,6 +75,23 @@ export function registerCommands(plugin: ReminderPlugin) {
     },
   });
 
+  // Add command to force re-authentication
+  plugin.addCommand({
+    id: "force-reauthenticate-google-tasks",
+    name: "Force Re-authenticate with Google Tasks",
+    callback: () => {
+      console.log("Forcing Google Tasks re-authentication...");
+      // Clear existing tokens first
+      plugin.clearGoogleTasksAuth();
+      // Short delay to allow notice from clear to show briefly?
+      // setTimeout(() => {
+      //   plugin.authenticateWithGoogleTasks();
+      // }, 500);
+      // No, run immediately
+      plugin.authenticateWithGoogleTasks();
+    },
+  });
+
   // Add command to verify Google Tasks authentication
   plugin.addCommand({
     id: "verify-google-tasks-auth",

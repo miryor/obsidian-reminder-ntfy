@@ -4,7 +4,7 @@ This document explains how to set up and use the Google Tasks synchronization fe
 
 ## Overview
 
-This integration allows you to synchronize your Obsidian reminders (specifically, checklist items with reminder syntax) with a designated list in your Google Tasks account. This provides a way to see and potentially manage your Obsidian reminders outside of Obsidian.
+This integration allows you to synchronize your Obsidian reminders (specifically, checklist items with reminder syntax) with a designated list in your Google Tasks account. This provides a way to see and potentially manage your Obsidian reminders outside of Obsidian. Note: The Google Tasks API doesn't recognize times, only dates. A request to recognize time has been an open request for many years and Google doesn't seem to want to change this.
 
 Currently, the synchronization is primarily **one-way** (Obsidian -> Google Tasks). However, the sync process _can_ detect if a task linked to an Obsidian reminder has been **completed or deleted** directly in Google Tasks and update the Obsidian reminder accordingly on the next sync.
 
@@ -32,7 +32,7 @@ To use this feature, you need to authorize the plugin to access your Google Task
 5.  **Create OAuth Client ID:**
     - Navigate to "APIs & Services" -> "Credentials".
     - Click **+ CREATE CREDENTIALS** at the top and select **OAuth client ID**.
-    - For **Application type**, select **Desktop app**.
+    - For **Application type**, select **Universal Windows Platform (UWP)**.
     - Give it a name (e.g., "Obsidian Reminder Client").
     - Click **Create**.
 6.  **Copy Client ID:** A pop-up will show your "Client ID" and "Client secret". **Copy your Client ID**. You will paste this into the plugin settings later. The Client Secret is _not_ needed for the plugin settings.
@@ -103,6 +103,7 @@ You can use the Obsidian command palette to access these Google Tasks related co
 - **`Sync reminders with Google Tasks`**: Manually triggers the synchronization process described in Section 3.
 - **`Get tasks from Google Tasks list (Log to console)`**: Fetches all tasks (including completed) from the configured Google Tasks list and prints their details to the Obsidian Developer Console. Useful for debugging.
 - **`Clear Google Tasks authentication`**: Removes the stored access and refresh tokens. Use this if you encounter persistent authentication issues or want to switch Google accounts.
+- **`Force Re-authenticate with Google Tasks`**: Clears existing authentication tokens and immediately starts the full OAuth authentication flow. Useful if authentication seems broken or you need to switch accounts quickly.
 - **`Verify Google Tasks authentication`**: Attempts to fetch your Google Task lists to confirm the current authentication tokens are valid.
 - **`Refresh Google Tasks token`**: Manually attempts to refresh the access token using the stored refresh token. Usually not needed, as refresh happens automatically.
 - **`Get Google Tasks list`**: Finds the task list specified in settings, creating it if necessary, and logs its details to the console.

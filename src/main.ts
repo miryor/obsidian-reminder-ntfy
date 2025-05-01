@@ -976,19 +976,13 @@ export default class ReminderPlugin extends Plugin {
    */
   private async ensureGoogleTasksAuthenticated(): Promise<boolean> {
     console.log("Checking Google Tasks authentication status...");
-    // First, check if we are already authenticated and token is not expired
     if (this._googleTasksService.isAuthenticated()) {
       console.log("Already authenticated.");
       return true;
     }
 
-    // Not authenticated or token expired. Check if we have a refresh token.
-    // Accessing tokenData directly requires it to be potentially public or have a getter
-    // Let's add a check within GoogleTasksService or assume we can check its existence indirectly
-    // For now, let's refine the logic based on the error thrown by refreshAccessToken
-
     // Check if there's even a refresh token to try with
-    const hasRefreshToken = await this._googleTasksService.hasRefreshToken(); // Need to add this method
+    const hasRefreshToken = this._googleTasksService.hasRefreshToken(); // This is synchronous now
     if (!hasRefreshToken) {
       console.log(
         "No refresh token available. Triggering full authentication flow...",
@@ -998,11 +992,13 @@ export default class ReminderPlugin extends Plugin {
         4000,
       );
       this.authenticateWithGoogleTasks(); // Start the flow
-      return false; // Indicate immediate authentication is not available
+      return false; // Indicate immediate authentication is not available - IMPORTANT TO RETURN HERE
     }
 
     // We have a refresh token, but might be expired or invalid. Attempt refresh.
-    console.log("Google Tasks not authenticated. Attempting token refresh...");
+    console.log(
+      "Attempting token refresh because access token is missing or expired...",
+    );
     try {
       await this._googleTasksService.refreshAccessToken();
       console.log("Token refresh successful during check.");
@@ -1011,7 +1007,6 @@ export default class ReminderPlugin extends Plugin {
         console.log("Authentication confirmed after refresh.");
         return true;
       } else {
-        // This case might occur if the refresh call itself didn't error but didn't result in valid tokens
         console.error(
           "Authentication still failed after token refresh attempt completed without error.",
         );
@@ -1028,7 +1023,6 @@ export default class ReminderPlugin extends Plugin {
           ? refreshError.message
           : String(refreshError);
 
-      // If refresh token is invalid, trigger the full auth flow
       if (errorMessage.toLowerCase().includes("invalid_grant")) {
         console.log(
           "Refresh token invalid. Triggering full authentication flow...",
@@ -1037,11 +1031,9 @@ export default class ReminderPlugin extends Plugin {
           "Google Tasks session invalid. Please re-authenticate.",
           4000,
         );
-        // Start the auth flow, but don't wait for it. Return true as auth *is being* handled.
         this.authenticateWithGoogleTasks();
         return false; // Return false because immediate authentication is not guaranteed
       } else {
-        // For other errors, just notify the user and indicate failure
         new Notice(
           `Google Tasks auto-refresh failed: ${errorMessage}. Please try syncing again later or authenticate manually.`,
           5000,

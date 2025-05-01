@@ -1021,7 +1021,7 @@ class GoogleAuthServer {
                   </style>
                 </head>
                 <body>
-                  <div class="success-icon">✓</div>
+                  <div class="success-icon">&#10003;</div>
                   <h1>Authentication Successful</h1>
                   <p>You have successfully authenticated with Google Tasks.</p>
                   <p>You can close this window and return to Obsidian.</p>
@@ -1074,7 +1074,7 @@ class GoogleAuthServer {
                   </style>
                 </head>
                 <body>
-                  <div class="error-icon">✗</div>
+                  <div class="error-icon">&#120;</div>
                   <h1>Authentication Failed</h1>
                   <p>No authorization code was received from Google.</p>
                   <p>Please try again or check the plugin settings in Obsidian.</p>
